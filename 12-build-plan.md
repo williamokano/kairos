@@ -132,23 +132,57 @@ lease) · full self-check, the chaos harness at 200 runs, backup and restore-tes
 
 ---
 
-## Phase 3 — "A window into it" · ~35 days (28–50)
+## Phase 3 — "The other surface, at parity" · ~45 days (38–60)
 
-**Goal:** one localhost page for what a terminal is bad at, and a binary a stranger can install.
+**Goal:** a web UI that is a first-class surface rather than a viewer, and a binary a stranger can install.
 
-**Scope.** One merged web app — conversation view with the inline decision card, run list, run detail with
-timeline and causal tree including forks, node detail, diff view, findings, fork compare, one stats page ·
-packaging (single binary with embedded assets, a Homebrew formula, launchd/systemd user units, first-run
-UX) · a docs pass.
+**Scope.** The full web app per [`10-webui.md`](10-webui.md) — composer, run list, run detail with
+timeline and causal tree, node detail, **the diff viewer**, the decision page, conversation, fork compare,
+findings, cost, the event-log explorer, triggers, host/doctor · SSE realtime with `Last-Event-ID`
+resumption on every live view · the loopback auth middleware · `TestUI_everyCallHasCLICounterpart` ·
+packaging (embedded assets, a Homebrew formula, launchd/systemd user units, first-run UX) · a docs pass.
+
+**Why this is ~10 days more than a viewer would have been.** Parity is a real requirement, not a
+rebrand: the browser has to *start* work, chat, decide, cancel, and fork, which means the mutating
+routes, the anti-rubber-stamp focus order in DOM form, the keyboard model, optimistic composer echo, and
+the log tail's scroll-lock all have to be right. The saving grace is that none of it needs new
+*engine* work — both surfaces are clients of the same API over the same socket, so parity is handlers
+and templates, not architecture.
 
 **The demo.**
-> `brew install kairos && kairos` — it starts, explains itself, and works. `kairos open` shows a
-> 500-event run's timeline, the diff of attempt 2 expanded, and two forks side by side without touching
-> the CLI. **A colleague installs it on their machine and gets a run to succeed in under ten minutes.**
+> `brew install kairos && kairos` — it starts, explains itself, and works. Then close the terminal
+> entirely: from `127.0.0.1:7717` alone, **start a run from the composer, watch its nodes stream in live,
+> read the diff side by side, type `approve` on the decision page, and watch the PR open** — without
+> touching the CLI once. Kill the daemon mid-stream; the page reconnects and resumes at the exact event.
+> **A colleague installs it and gets a run to succeed in under ten minutes.**
 
 ---
 
-**Total ≈ 175 developer-days**, or eight to nine months solo at a sustainable pace. That is roughly a
+## Phase 4 — "One more machine" · ~18 days (14–25)
+
+**Goal:** spread load across machines you own, without acquiring a scheduler.
+
+**Scope.** Per [`07-runners.md`](07-runners.md): `Spec.Dir` split into workspace + relative subdir (worth
+doing even alone) · the `ssh` runner over `ControlMaster` multiplexing, argv over NDJSON rather than shell
+strings · `kairos runner serve` reusing the daemon's transport with a strict route subset · per-runner
+toolchain probes and per-runner concurrency/disk, with model, budget, and human pools staying **global** ·
+`runsOn` label match with pinning at admission · the split where the runner supplies bytes and exit codes
+while the engine keeps the judgement · per-runner reaping and the eight failure modes · the runners screen
+in both surfaces.
+
+**Depends on phases 0–2**, and deliberately comes after the surfaces: a second machine is worth nothing
+until you can see what is happening on the first.
+
+**The demo.**
+> `kairos runner add beelink --ssh …` then `kairos doctor --runner beelink`. A workflow with
+> `runsOn: linux` executes on the Beelink while a second run executes locally, both streaming into one
+> timeline. `kairos runner ls` shows per-runner concurrency and the **global** model slots, making it
+> obvious why adding a machine did not double throughput. Then pull the network cable mid-run: the run is
+> **stuck, not silently migrated**, says so with the runner named, and resumes when the link returns.
+
+---
+
+**Total ≈ 203 developer-days**, or nine to eleven months solo at a sustainable pace. That is roughly a
 quarter of the original corpus's implied scope — which is about right: the distributed half was more than
 half the *work* and less than half the *ideas*.
 

@@ -257,6 +257,13 @@ if `spent + estimatedNextTurn > maxCostUSD`, close stdin, `SIGTERM` the group, a
 | max turns | the CLI's own `--max-turns`; hitting it **fails** the node rather than returning a half-finished result that looks complete |
 | resource watchdog | Linux: `systemd-run --user --scope -p MemoryMax=8G -p CPUQuota=400%`. macOS: **no equivalent** — poll RSS and terminate over a threshold, and call it a monitor, not a limit |
 
+**Redact on collection, not only on append.** The event-log redactor is not enough: the transcript and
+`stdout.log` are collected as *artifacts*, and they hold everything the model was shown and everything it
+printed — a context file, a `.env` it read, a token echoed by a failing command. Run the same pattern set
+over both at collection time and record `artifact.redacted{count}`. See NL-18 in
+[`11-limitations.md`](11-limitations.md); until this ships, treat the artifact store as containing
+secrets.
+
 **Streaming.** Raw bytes to `stdout.log` **first**, parse second — if the parser panics on a shape from
 a CLI upgrade, you still have the transcript (recover, emit `session.stream.unparsed`, keep going).
 Progress lines are **coalesced** into one event per 250ms or 64 entries: a 30-minute session emits

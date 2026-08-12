@@ -98,7 +98,7 @@ reduction actually happens, so they're stated in full.
 | **L10** | **Failure is explicit, never silent.** Unchanged. Every fallback emits an event naming what failed and what was substituted. |
 | **L11** | **Every effect has a compensation.** Unchanged, with a companion sentence: it governs effects *kairos* performs. An agent that runs `gh pr merge` itself has performed an undeclared, unrecorded, uncompensable effect. That gap is new and registered. |
 | **L12** | **Determinism where possible, quarantine where not.** Unchanged. Replay only works if the deterministic part actually replays. |
-| **L13′** | **One binary, one directory, zero setup.** *(replaces "useful on one machine, unchanged on twenty")* `kairos` on a clean machine with no config file, no daemon to install, and no external service does useful work. *Forbids:* a required config file before first run, a mandatory external process, an install step beyond the binary. **This forecloses the twenty-machine path rather than deferring it** — re-adding it is a rewrite of admission, workspace ownership, and the event bus. Saying otherwise would be a lie in a document, which L14 forbids. |
+| **L13′** | **One binary, one directory, zero setup.** *(replaces "useful on one machine, unchanged on twenty")* `kairos` on a clean machine with no config file, no daemon to install, and no external service does useful work. *Forbids:* a required config file before first run, a mandatory external process, an install step beyond the binary. **This forecloses the *fleet*** — placement, scoring, affinity, preemption, and capacity planning are gone and are not coming back. It does **not** forbid a second machine: a run may be pinned to a remote runner ([`07-runners.md`](07-runners.md)), which is one executor implementation and a label match, not a scheduler. Zero setup remains the law: `local` is always present and requires no configuration. |
 | **L14** | **The corpus is the source of truth.** Unchanged. |
 
 **Tie-breakers, reordered.** Originally: event log → isolation/safety → durability → simplicity → DX.
@@ -154,7 +154,7 @@ seconds → record `process.reaped`.
 The known gap: a **double-forked daemon** — a dev server, a file watcher, `docker run -d` — escapes a
 process-group kill. Mitigations are a process-inventory diff per node execution, a startup orphan
 reaper, and cgroup-v2 kill on Linux where available. It is not closed; see
-[`09-limitations.md`](09-limitations.md).
+[`11-limitations.md`](11-limitations.md).
 
 ---
 

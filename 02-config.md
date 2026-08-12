@@ -153,7 +153,13 @@ time a node execution finishes. First failure wins, and the reason is shown verb
 5. spend + estimate > dailyUSD         → "$24.10 of $25.00 spent today"
 6. open decisions >= maxOpenDecisions  → "5 decisions already waiting on you"
 7. queued >= maxQueued                 → REJECT (not queue), reported back to the task source
+8. no healthy runner matching runsOn   → "no healthy runner labelled 'macos'"  (terminal, not queued)
 ```
+
+Rule 8 exists only once you have added runners ([`07-runners.md`](07-runners.md)); with the default
+`local` runner it can never fire. It is **terminal rather than queued**, for the same reason a missing
+tool is: a request nothing can ever satisfy should fail immediately with the label named, not sit in a
+queue being retried until the wall clock expires.
 
 Rules 3 and 6 are the interesting ones. **Rule 3 — one writer per workspace — is what the entire
 distributed scheduler's affinity machinery was approximating.** Locally it is a `flock`. **Rule 6 is
@@ -187,5 +193,5 @@ engine's own `builtin.git-push` node, which runs in a different process with a d
 populated from the keychain *after* the policy check.
 
 That is the difference between a permission and a capability, and it is the single most effective
-control available on a machine with no isolation. See [`09-limitations.md`](09-limitations.md) for
+control available on a machine with no isolation. See [`11-limitations.md`](11-limitations.md) for
 what it does not cover.

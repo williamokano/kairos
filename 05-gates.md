@@ -23,6 +23,17 @@ Four clauses, each blocking a specific escape:
    no path from actor output to `$succeed` that does not pass through gate evaluation.
 4. **Order is fixed:** output-schema validation → gates in declared order → `on` edges.
 
+> **One qualification, for runs pinned to a remote runner** ([`07-runners.md`](07-runners.md)). When the
+> workspace is on another machine the engine cannot `stat` the tree, so the split becomes: **the runner
+> supplies bytes and exit codes; the engine keeps the judgement.** `expr` stays in-engine unchanged;
+> `regex`, `coverage`, `file`, and `git-diff` fetch their input from the runner and evaluate the assertion
+> locally in Go. That leaves **`command` as the only gate whose verdict is genuinely delegated** — the
+> engine chooses the argv, but a remote runner reports its own exit code, so a compromised or broken
+> runner can claim a gate passed. That is a **weakened guarantee, not an equivalent one.** It is mitigated
+> by the runner being the `kairos` binary with no gate schedule of its own and by the agent never holding
+> a runner credential; its detection is **none**. On the default `local` runner none of this applies and
+> clause 2 holds exactly as written.
+
 Placement and cost per kind:
 
 | Kind | Where | Cost | Takes a permit? |

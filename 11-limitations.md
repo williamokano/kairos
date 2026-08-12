@@ -242,6 +242,20 @@ bounding kairos by the *host's* health rather than only its own quota (**shipped
 `io.max`/`memory.max` on Linux (**shipped where available**). **On macOS: none.**
 *Detection:* the watchdog, after the fact.
 
+**NL-18 · Transcripts are artifacts, and the redactor only guards events.**
+The event-log redactor blocks secret-shaped values from being appended — but an agent's **transcript** and
+its raw `stdout.log` are collected as *artifacts*, and they contain everything the model was shown and
+everything it printed. A context file, a `.env` the agent read, or a token echoed by a failing command
+therefore lands in the artifact store, which is then attached to bug reports and copied into backups. The
+mitigation that exists for events does not cover the larger surface.
+*Blast radius:* every secret that passed through a prompt or a command's output, at rest on disk,
+unredacted.
+*Mitigations:* run the same redactor over transcript and log artifacts at collection time, recording
+`artifact.redacted{count}` (**planned** — this is the fix and it is cheap); the mandatory secret-scan gate
+catches shaped secrets in the *diff* but not in the transcript (**shipped**, partial); artifact retention
+defaults expire transcripts in 30 days (**shipped**, weak).
+*Detection:* run the redactor's pattern set over the artifact store in `kairos db verify` and report hits.
+
 **NL-13 · The audit log is not tamper-proof.**
 The agent can write `~/.kairos/kairos.db` unless G6–G9 are enabled.
 *Mitigations:* `guardrails-untouched` covers `~/.kairos/**` in the diff gate (**shipped**), refusing to
@@ -249,6 +263,38 @@ start when the state dir is inside the workspace root or vice versa (**shipped**
 the agent cannot write (**planned**), signed event chains (**planned** — and this moves from
 nice-to-have to the honest fix for this variant).
 *Detection:* `kairos db verify` integrity check.
+
+---
+
+## When runners are enabled
+
+These four apply **only** if you add a runner beyond the default `local` one
+([`07-runners.md`](07-runners.md), which carries the full entries with their mitigation lists). They are
+registered here because a limitation that can only be found by reading a feature document will not be found
+by the person who needed it.
+
+**NL-14 · A remote runner is trusted to report its own gate results.** A `command` gate executed on a runner
+returns an exit code the engine cannot independently verify, so a compromised or misconfigured runner can
+report `exit 0` for a lint it never ran. In a variant with no isolation, gates carry the entire safety
+budget — so this is the **most consequential limitation any runner introduces**, and it is why
+`ADR 0009` stays `Proposed`. `expr`, `file`, `regex`, `git-diff`, and coverage *extraction* remain in the
+engine, so `guardrails-untouched` and `scope-respected` are unaffected.
+*Detection:* **none.** A lying runner looks exactly like a passing gate. Use runners you own.
+
+**NL-15 · The agent inherits the runner's credentials and filesystem.** NL-01 said an agent can read
+anything *you* can; on a runner it can read anything *that machine's* user can — a different and possibly
+larger set. Adding a runner adds a blast radius rather than moving one.
+*Detection:* none, as NL-01.
+
+**NL-16 · A run pinned to a lost runner cannot be recovered, only abandoned or re-derived.** The workspace
+is on that machine and there is deliberately no transfer mechanism, so uncommitted work in that clone is
+unreachable while the runner is down and lost if it never returns.
+*Detection:* loud — the run sits `Blocked` with the runner named and three explicit operator choices.
+
+**NL-17 · Remote artifacts and diffs cost a network transfer.** The local `rename(2)`/reflink fast path is
+gone; a `git-diff` gate on a 20 MB diff moves 20 MB before it can be evaluated. Wall-clock and bandwidth,
+not correctness.
+*Detection:* transfer duration appears in the run timeline.
 
 ---
 
@@ -280,10 +326,17 @@ nice-to-have to the honest fix for this variant).
 
 ## What is foreclosed rather than deferred
 
-**The multi-machine growth path.** The original design promised *"useful on one machine, unchanged on
-twenty"* — adding a machine was meant to be registration, not reconfiguration. This variant trades that
-away for zero setup, and re-adding it is a rewrite of admission, workspace ownership, and the event bus,
-not a configuration change. Also foreclosed: the capability-advertisement mechanism that per-machine
-verification was built on.
+**The fleet.** The ancestor design promised *"useful on one machine, unchanged on twenty"*, where adding a
+machine was registration rather than reconfiguration, and the scheduler then *chose* where work ran.
+That is gone and is not coming back: placement, scoring, workspace affinity, spreading, preemption,
+capacity planning, workspace relocation, and the capability-advertisement mechanism per-machine
+verification was built on. Re-adding those is a rewrite of admission, workspace ownership, and the event
+bus.
+
+**A modest exception is designed** in [`07-runners.md`](07-runners.md): additional runners can be plugged
+in to spread load across machines you own. What that does **not** restore is placement, migration, or
+isolation — a run is **pinned to one runner for life**, chosen by a label match at admission rather than
+scored, and it cannot be moved if that runner dies. It also adds a trust assumption the local-only design
+did not have: a remote runner reports its own gate exit codes.
 
 Saying otherwise would be a lie in a document, and a lying document is worse than a missing one.

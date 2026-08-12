@@ -6,11 +6,12 @@ through a durable workflow with gates you cannot skip.**
 No infrastructure: no VMs, no containers, no Kubernetes, no remote nodes, no Postgres, no gRPC. The
 host machine *is* the worker, and the host's installed tooling *is* the image.
 
-> **Status: design, not code.** Nothing here is implemented yet. These eleven documents are written so
-> that a coding agent or a human can pick up one of them, implement it in isolation, and know how it
-> fits. [`10-build-plan.md`](10-build-plan.md) is the order to build them in.
+> **Status: design, not code.** Nothing here is implemented yet. These documents are written so that a
+> coding agent or a human can pick up exactly one of them, implement it in isolation, and know how it
+> fits. [`12-build-plan.md`](12-build-plan.md) is the order to build them in, and
+> [`AGENTS.md`](AGENTS.md) is the constitution that outranks all of them.
 >
-> Read this document and you have the whole idea. The other ten are the detail.
+> Read this document and you have the whole idea. The rest is the detail.
 
 ---
 
@@ -78,13 +79,13 @@ work *portable across machines*. That third dies outright. Everything that exist
 | Constitution / mandatory gates, non-removable | Policy → **three-tier effect permissions** | RBAC principals, teams, roles, `policy simulate` |
 | Effects + compensations; `effect.attempted` first | Human queue → **one user, TUI + notification** | SLAs, escalation-to-team, queue routing |
 | Replay and fork of a run | Sessions → **the agent CLI's own `--resume`** | Egress allowlists, kernel isolation, image pinning |
-| Child runs, coordinator fan-out, `Degraded` | Transports → **TUI + localhost console** | Multi-machine growth path (foreclosed, not deferred) |
+| Child runs, coordinator fan-out, `Degraded` | Transports → **TUI + web UI, at parity** | Placement, affinity, preemption, capacity planning — though [runners](07-runners.md) can spread load |
 
 ### The two things genuinely lost
 
 **1. Isolation.** The original design's answer to a prompt-injected agent was *"it compromised a
 disposable microVM"*. There is no VM. An agent runs as you, on your machine, with your files. See
-[`09-limitations.md`](09-limitations.md) — this is stated plainly, not buried, and the mitigations
+[`11-limitations.md`](11-limitations.md) — this is stated plainly, not buried, and the mitigations
 that remain are real but weaker.
 
 **2. The twenty-machine path.** Law L13 of the original corpus promised *"useful on one machine,
@@ -198,11 +199,11 @@ single most important one to not break while building this.
 | **`kairos do "…"`** | you publish a task directly | Runs the built-in `adhoc` workflow: classify → implement → gate → confirm. |
 | **`kairos chat`** | a message in the TUI | A conversation spanning many runs. Follow-ups resume the same agent session. |
 | **`kairos run f.yaml`** | a named workflow, by hand | The scripting path; what CI-like use looks like. |
-| *(optional)* webhook | `gh webhook forward` into `127.0.0.1:7777` | Opt-in. Poll is the default and always works. |
+| *(optional)* webhook | `gh webhook forward` into `127.0.0.1:7717` | Opt-in. Poll is the default and always works. |
 
 A task source is a **plugin**: an executable in `~/.kairos/plugins/` speaking JSON on stdout. Four
 ship compiled in (github-issues, jira, linear, file-inbox), so you write nothing for the common
-cases. See [`08-tasksources.md`](08-tasksources.md).
+cases. See [`08-triggers.md`](08-triggers.md).
 
 ---
 
@@ -333,11 +334,14 @@ confirm-tier effect.
 | [`04-agents.md`](04-agents.md) | Launching `claude`/`codex`/`gemini` headless; typed output; sessions; credentials |
 | [`05-gates.md`](05-gates.md) | The constitution mechanism — seven gate kinds, and why they cannot be bluffed |
 | [`06-durability.md`](06-durability.md) | SQLite event store, recovery, workspaces, fork/replay, host preflight |
-| [`07-surfaces.md`](07-surfaces.md) | The command surface, the TUI, the approval screen, the first sixty seconds |
-| [`08-tasksources.md`](08-tasksources.md) | Triggers, polling, dedup, and the stdio plugin contract |
-| [`09-limitations.md`](09-limitations.md) | What this genuinely cannot do, stated as consequences |
-| [`10-build-plan.md`](10-build-plan.md) | Four phases, the demo that proves each, honest effort estimates |
+| [`07-runners.md`](07-runners.md) | The executor seam, and plugging in remote runners to spread load |
+| [`08-triggers.md`](08-triggers.md) | Triggers, polling, dedup, and the stdio plugin contract |
+| [`09-cli-and-tui.md`](09-cli-and-tui.md) | The command surface, the ten TUI screens, the approval screen |
+| [`10-webui.md`](10-webui.md) | The web UI — a co-equal surface, at parity, realtime over SSE |
+| [`11-limitations.md`](11-limitations.md) | What this genuinely cannot do, stated as consequences |
+| [`12-build-plan.md`](12-build-plan.md) | Five phases, the demo that proves each, honest effort estimates |
 | [`AGENTS.md`](AGENTS.md) | **The constitution.** Read it before writing code — toolchain, layout, the hard rules, definition of done |
+| [`adr/`](adr/README.md) | The decisions, dated, with their alternatives and revisit triggers |
 
 **The laws this variant obeys**, reduced from the original fourteen to eleven, live in
 [`01-architecture.md`](01-architecture.md#the-laws). Two are new and worth stating here because they

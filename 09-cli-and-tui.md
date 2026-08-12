@@ -1,26 +1,33 @@
-# 07 — Surfaces
+# 09 — The CLI and the TUI
 
-**TUI-first, with an embedded web page that is an inspector rather than a second console.**
+**Two co-equal surfaces.** Anything you can do in the terminal you can do in the browser, and the
+reverse. The web UI has its own document — [`10-webui.md`](10-webui.md); this one is the terminal and the
+command line.
 
-The split is by *job*, not by completeness — which is what stops the two drifting into half-surfaces:
+Parity is a requirement, not an aspiration, and it is cheap to hold because of a decision made in
+[`01-architecture.md`](01-architecture.md): **both surfaces are clients of the same in-process API over
+the same unix socket, and neither holds state.** A capability that exists in one and not the other is a
+missing handler, not a missing architecture.
 
 | | **TUI** (`kairos`) | **Web** (`127.0.0.1:7717`) |
 | --- | --- | --- |
-| job | **do the work; unblock it** | **read wide evidence** |
-| mode | open all day, typed into | opened from a link for 90 seconds |
-| content | what's running, conversation, decisions, run timeline, log tail | diffs, long transcripts, side-by-side compare, 10k-event timelines |
-| shape | 80–120 columns, dense, keyboard | as wide as your monitor |
+| start work, chat, approve, cancel, fork, follow logs, inspect | ✓ | ✓ |
+| better at | latency; no context switch; approving without leaving the shell; shelling out to `$PAGER`, `git difftool`, `gh`; working over SSH; a right-prompt badge | review-quality diffs; long transcripts with search; side-by-side comparison; 10k-event timelines; a pasteable URL |
+| realtime | SSE over the unix socket | SSE over loopback — the same stream, the same `Last-Event-ID` |
+| writes | the API | the API |
 
-The original design had two browser surfaces (a conversational Console and an Operations UI) split
-because they were two jobs for two moods. Locally it is one person, one localhost origin, and no vendor
-to remove a dependency on — and the *Console* job (unblock work, glanced at forty times a day) is the
-job a terminal does best and a browser tab does worst. So Console moves to the terminal, and the web app
-becomes what Operations was: the visual, wide, drill-down surface.
+The ancestor design split its browser surfaces into a conversational Console and an operational
+Operations UI, on the grounds that they were two jobs for two moods. That split dies: one person, one
+origin, one app. What replaces it is not a *narrower* web surface but a **complete** one.
 
-The one component that must exist in **both** is the decision card: a 3000-line diff approval genuinely
-wants a browser, and a `git push` approval genuinely wants to be answered without leaving the terminal.
-Both render from the same server-computed decision context, so content cannot drift even where
-presentation does.
+The component that must be identical in both is the decision card — a 3000-line diff approval wants a
+browser, a `git push` approval wants to be answered without leaving the terminal — and both render from
+the same server-computed decision context, so the evidence cannot drift even where the presentation does.
+
+**The anti-rubber-stamp rules are surface-independent.** Evidence before controls in focus order, no
+single-key or single-click approve, the typed decision word, a blocked form when evidence failed to load.
+Parity means parity on the constraints too; a browser that is easier to rubber-stamp in than the terminal
+would make the gate worthless in exactly the place people would use it most.
 
 ---
 
@@ -61,6 +68,7 @@ kairos                          open the TUI (starts the daemon if needed); prin
   kairos src    add|ls|rm|pause|poll      task sources
   kairos plugin ls|add|rm|test
   kairos secret set|ls|rm
+  kairos runner add|ls|rm|probe|drain     execution targets — see 07-runners.md
 
   the engine
   kairos status                 running? queue depth, active runs, today's spend, source health
@@ -97,8 +105,47 @@ files, `kairos flow ls` is a directory listing with a validation column, `diff` 
 versioning is git plus a content hash recorded at run start — a publish step exists to coordinate many
 authors against a shared server, and there is one author); and everything auth-related.
 
-Four verbs are **new**: `kairos open` (there is a real directory to look at, which is the best thing
-about being local and deserves a verb), `kairos do`, `kairos doctor`, and `kairos park`.
+Five verbs are **new**: `kairos open` (there is a real directory to look at, which is the best thing
+about being local and deserves a verb), `kairos do`, `kairos doctor`, `kairos park`, and `kairos runner`.
+
+### Global flags, and the rule about them
+
+```text
+-o, --output  table | json | yaml | wide      default table; json is stable, table is not
+-q, --quiet   ids only, one per line          for xargs
+-w, --follow  stream until terminal or Ctrl-C
+    --wait    block until the run reaches a terminal state; exit code reflects the outcome
+    --json    alias for -o json
+```
+
+Two rules worth writing down because they decide whether this is scriptable:
+
+- **`-o json` is a contract; the table is not.** Table columns may be reordered or renamed freely. JSON
+  field names are append-only, exactly like event payloads. Anything else means every script anyone
+  writes breaks on a patch release.
+- **There is no `--yes` that answers a decision.** `--wait` and `-q` exist so a script can *drive* work
+  and *observe* outcomes; approving is deliberately not scriptable past the constraints in
+  [`05-gates.md`](05-gates.md).
+
+### Exit codes
+
+Scripting needs these stable, and a single number that means "something went wrong" makes a wrapper
+impossible to write:
+
+| | |
+| --- | --- |
+| `0` | success — and for `--wait`, the run succeeded |
+| `1` | an error |
+| `2` | usage error |
+| `3` | not found |
+| `4` | validation failed (a definition, a form answer, a config field) |
+| `5` | denied by policy |
+| `7` | the run reached a non-success terminal state (failed, cancelled, degraded) |
+| `8` | an invariant violation — a bug, and it says so and tells you to file it |
+| `10` | `kairos inbox --quiet`: something is waiting on you |
+
+`10` is deliberately outside the error range: shell prompts call `inbox --quiet` on every render, and a
+"waiting" signal must not look like a failure to `set -e`.
 
 ---
 
@@ -171,6 +218,146 @@ Progress **coalesces to one line with a count** (`▸ 41 tool calls`, `⇥` to e
 out. That is the difference between a pane you watch and a pane you mute. A decision card is a *message*,
 collapsed to its risk headline and opened in place — never a link to elsewhere.
 
+### Run inspector
+
+`r` on a run, or `:` and paste any `run_…` id. This is where the run timeline and the node detail merged,
+because with one machine and one workspace there is not enough per-node content to justify two screens.
+
+```text
+┌ run_01A8x · implement-task@3 · ✓ succeeded · 4m12s · $0.71 ················┐
+│ objective   add cursor pagination to GET /orders (no offsets)              │
+│ workspace   ~/.kairos/work/run_01A8x/repo   clone · clean · 148 MB   [o]   │
+│ runner      local                        parent —   children run_01B2c ✓   │
+│                                                                            │
+│ TIMELINE                                                        t n a e     │
+│  ●  00:00.0  run.started                                                   │
+│  ✓  00:00.4  plan             rule           0.4s      —                   │
+│  ✓  00:31.2  read-context     implementer   30.8s   $0.09   12 tools       │
+│  ✓  02:04.7  implement        implementer   93.5s   $0.38   41 tools   ▸   │
+│  ✗  02:41.0  test             shell         36.3s      —    exit 1         │
+│  ↻  02:41.0  test-and-fix     implementer   attempt 2 of 3                 │
+│  ✓  03:58.9  test             shell         77.9s      —    exit 0         │
+│  ⚑  04:02.1  push-approval    human         waiting 12m              ⏎     │
+│  ✓  04:12.0  run.succeeded                                                 │
+│                                                                            │
+│ EFFECTS (2)                                                                │
+│   git.commit   2 commits on kairos/pagination            reversible        │
+│   git.push     origin kairos/pagination                  ⚠ irreversible    │
+│                                                                            │
+│ FINDINGS (1)   medium  quality   2 TODOs added   list.go:88                │
+│ SESSION        1 compaction ⚠      3 attempts on `test`                    │
+│ ARTIFACTS      diff (12 KB) · transcript (840 KB) · coverage (4 KB)   [a]  │
+├────────────────────────────────────────────────────────────────────────────┤
+│ NAV ⏎ node  l logs  d diff  f fork  x cancel  B breakpoint  o browser  esc │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+Filters on the timeline: `t` transitions only, `n` node executions, `a` attempts expanded, `e` effects.
+`⏎` on a node expands **in place** — input, output, findings, the transcript head — rather than opening a
+screen; full transcripts go to the browser or `$PAGER`.
+
+Two rows earn their place on the primary view rather than behind an expander, because they are the
+highest-value under-surfaced signals in the system: **`↻ attempt 2 of 3`** and **`1 compaction ⚠`**.
+"This node took four attempts and compacted twice" is exactly when to look harder, and both are free to
+compute.
+
+`f fork` and `B breakpoint` live here. That is the decision that makes the web page read-mostly: **the
+debugger ships in the terminal**, so the browser needs no rich interaction, so htmx is the right stack
+for it. Those three facts are one decision, not three.
+
+### Log follow
+
+```text
+┌ logs · run_01A8x · node test · stdout+stderr ········· ⏸ 8,412 lines ─────┐
+│ 03:57.2 │ go test ./services/orders/...                                   │
+│ 03:58.1 │ ok    services/orders/repo        0.412s                        │
+│ 03:58.4 │ --- FAIL: TestListCursor (0.01s)                                │
+│ 03:58.4 │     list_test.go:88: expected 20 items, got 21                  │
+│ 03:58.4 │ FAIL  services/orders            1.104s                         │
+│         │                                                                 │
+│ ┄┄┄ paused · 12 new lines below · G to follow ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
+├──────────────────────────────────────────────────────────────────────────┤
+│ NAV  G follow  gg top  / search  n/N  w wrap  1 stdout  2 stderr  3 both  │
+│      o $PAGER  a write artifact to a path  esc                            │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+A **capped tail, not a log viewer**: the last 10,000 lines in a ring, `a` writes the full artifact to a
+path and prints it, `o` hands the file to `$PAGER` and gets out of the way. Locally this is *better* than
+any viewer that could be built — the log is a file on your disk and `rg` is right there.
+
+**No autoscroll while you are scrolled up**, and the divider says how many lines you are behind. That
+divider is the terminal's "jump to end", and omitting it is how a follow view becomes unusable.
+
+### Inbox
+
+`a` from anywhere. The queue of things waiting on **you**, which is the screen the header badge points at.
+
+```text
+┌ inbox · 2 waiting ····························································┐
+│ ▸ ⚠ approve   push branch + open PR · pagination                            │
+│       run_01A8x · asked 12m ago · 1 medium finding · $2.90                   │
+│   · clarify   "should cancel be idempotent?"                                │
+│       run_01A6d · asked 31m ago                                             │
+│                                                                             │
+│   nothing else is blocked on you. 3 runs are working.                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ NAV  ⏎ open the decision   j/k   r refresh   esc                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**This list never answers a decision.** It links to the decision screen and nothing else — no inline
+approve, no bulk approve, no keyboard shortcut that resolves an item from here. That is the same rule as
+the missing global approve key, and it exists for the same reason.
+
+### Runners
+
+Only interesting once you have more than one; see [`07-runners.md`](07-runners.md). With just `local` it
+is one line, and that is correct — a screen that shows one row is honest about there being one row.
+
+```text
+┌ runners ······································································┐
+│ NAME      KIND   HEALTH     RUNS  CPU-HEAVY  DISK FREE  TOOLCHAIN           │
+│ local     local  ✓ healthy   3/4      2/2      412 GB   go 1.25 · node 22   │
+│ beelink   ssh    ✓ healthy   1/4      0/2       94 GB   go 1.25 · no node ⚠ │
+│ macmini   ssh    ◌ probing      —        —           —  —                    │
+│                                                                             │
+│ model slots are GLOBAL, not per runner: opus 2/2 · sonnet 1/3                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ NAV  ⏎ detail  p probe  D drain  esc                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+The `no node ⚠` and the global-slots line are the two things this screen exists to tell you: which
+workflows *cannot* run where, and why adding a machine did not double your throughput.
+
+### Benchmark
+
+`b`. Fork one run N ways from a common prefix, vary one thing, and show the spread.
+
+```text
+┌ bench · run_01A8x @ seq 14 · vary: actor.implement ·······················┐
+│ VARIANT          RUNS  PASS  p50 COST   p50 TIME   FINDINGS  GATES          │
+│ claude-sonnet       3    3/3     $0.71    ~4m12s        1.0    12/12         │
+│ claude-opus         3    3/3     $2.90    ~3m48s        0.3    12/12         │
+│ codex               3    2/3     $0.44    ~6m01s        2.7    11/12         │
+│                                                                             │
+│ ~ durations are not comparable: variants ran concurrently and contended     │
+│   for CPU and your rate limit. cost, gates, and findings ARE comparable.     │
+│ 3 repeats is an anecdote, not a result.                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+Both caveats are printed, always. The wall-clock one is new and local-specific — concurrent variants
+contend for the same machine and the same subscription — and silently reporting contaminated durations
+would be worse than the honest note. Run variants serially with `--serial` if you want the timing.
+
+### The command palette
+
+`:` — the replacement for a cross-surface `⌘K`, and deliberately small. Paste any prefixed ULID
+(`run_`, `ht_`, `nex_`, `src_`) and it resolves to the right screen; type a screen name; type a verb.
+No fuzzy-search over everything, no command history as a feature.
+
 ### The keyboard model
 
 Two modes, with a visible indicator, because a chat surface has a text field that eats single keys and
@@ -203,6 +390,95 @@ changed and this matters, because if you defend the boundary with the old argume
 original reason was a threat model (untrusted agent, remote machine, kernel boundary) and that reason is
 gone. The reason now is **durability** — a renderer's lifetime is a terminal session, and work must
 outlive it. Enforced by `TestArchitecture_tuiHasNoExecution`, which is the only thing left holding it.
+
+### Navigation
+
+```text
+                 ┌──────── : (resolve any id) ────────┐
+                 ▼                                    ▼
+   ┌──────► HOME ──── c ────► CONVERSATION ──⏎──► DECISION
+   │         │  │                  │  ⏎               │
+   h         a  r                  ▼                 esc
+   │         │  │           RUN INSPECTOR ──l──► LOGS
+   └─────────┘  └──────r───────────┘  ▲               │
+                                      └─────esc───────┘
+
+esc walks back up this graph and never exits the program.
+o at any node opens the same entity in the browser.
+```
+
+One level deep everywhere: nothing is more than two `esc` from home. The five-second question — *can you
+tell what this screen is for in five seconds* — has to hold per screen, and a short descent is what keeps
+it answerable.
+
+### The status bar
+
+Three zones, and every element is load-bearing rather than decoration:
+
+```text
+┌ kairos · orders-service · main ······················· ⚑2 · $1.84 · ● live ┐
+  └──┬───┘   └──────┬──────┘  └─┬─┘                       └┬┘   └──┬─┘  └─┬─┘
+   app        project/repo    branch              waiting-on-you  today  link
+├────────────────────────────────────────────────────────────────────────────┤
+│ NAV  ⏎ open  j/k  a inbox  c chat  r runs  l logs  : goto  ? help          │
+  └─┬─┘ └──────────────────────┬───────────────────────────────────┘
+   mode          context-sensitive bindings, never a fixed list
+```
+
+- **`⚑2` is mirrored into the terminal title** via `OSC 2`, which lights the activity flag in tmux, iTerm,
+  WezTerm, and Ghostty. Free, and it is the only way a background pane can get your attention.
+- **`● live` / `◐ 45s` / `◌ engine not responding`** is the quiet-versus-disconnected distinction. It
+  matters *more* here than it would remotely: a dead daemon means nothing is executing at all, and a
+  screen that looks merely idle when the engine is gone is the worst possible lie for this tool to tell.
+- **`$1.84` is the entire cost dashboard.** One number, today. `kairos cost` is the report.
+- **Bindings are context-sensitive and never a fixed list.** A key that does nothing on this screen is not
+  shown on this screen.
+
+### How live updates arrive
+
+SSE over the unix socket, resumable by `Last-Event-ID` — the *same* mechanism the web page and
+`--follow` use. Keeping one resumption story rather than three is worth more than the microseconds a
+private channel would save.
+
+Each event becomes one message in the update loop, and the loop **invalidates and refetches** rather than
+patching, with conversation-message append as the single exception. That rule matters more locally, not
+less: a projection reimplemented in the renderer would diverge from the engine's projection *inside the
+same process*, which is a genuinely humiliating class of bug.
+
+Two mechanical rules: **progress coalesces at the renderer, not at the source** (every tool call is in
+the log; the pane shows a count), and **redraw is diffed and capped at ~10 Hz** — not for bandwidth, but
+because a full repaint fights tmux, breaks text selection, and burns battery.
+
+Reconnect collapses to something a human can read: retry every 500 ms, say `◌` after 3 s, and after 10 s
+say `◌ engine not responding — kairos serve`. The jittered exponential ladder a network needs is noise on
+a socket.
+
+### Screen states
+
+Six, and the two rules about them are the ones most often broken:
+
+| State | Rendering |
+| --- | --- |
+| loading (first paint) | a skeleton, never a spinner over an empty frame |
+| loading (refresh) | invisible — the old content stays until the new arrives |
+| empty | says what *would* create one. Never a bare "no results" |
+| partial | shows what loaded, names what did not, offers retry |
+| error | the message, the correlation id, and `kairos events --correlation <id>` to run yourself |
+| stale | the engine is unreachable; content is dimmed and dated, never silently frozen |
+
+1. **`Waiting` and `Degraded` are not errors and not spinners.** They render with the reason named —
+   `waiting: you`, `waiting: ci`, `waiting: child`, `waiting: rate-limit`. A run parked on a human for
+   three days is the system working correctly and must not look like a hang.
+2. **Unknown is `—`, never `0`.** A cost that has not been reported is not free, and rendering it as
+   `$0.00` produces a confident wrong number in the one place people trust numbers.
+
+### Accessibility, in a terminal
+
+Small list, all cheap, none optional: honour `NO_COLOR` and `TERM=dumb`; keep the palette 8-colour-safe
+and **never** carry severity by colour alone; and treat **`--no-tui` as a first-class, permanently
+supported surface** — the line-oriented `kairos show` / `kairos logs --follow` path. A full-screen TUI is
+genuinely hostile to a screen reader, so the line-oriented mode is *the accessible surface*, not a
+degradation of one.
 
 ---
 
@@ -372,36 +648,26 @@ Three mitigations and one refusal:
 
 ---
 
-## The web page
+## Where the browser takes over
 
-**Go `html/template` + `//go:embed` + vendored htmx + ~200 lines of hand-written JS + plain CSS. No
-Node, no npm, no lockfile, no bundler, no TypeScript.** `go build ./...` produces the whole thing.
+`o` on any focused entity opens the same thing at `127.0.0.1:7717`. The full specification is
+[`10-webui.md`](10-webui.md); the boundary is what matters here.
 
-The original chose Vite + React, and its own ADR named Go templates + htmx as *"genuinely the strongest
-alternative, and the one most aligned with the project's values"*, rejecting it on three grounds and
-listing four conditions for its own supersession. Every ground has vanished and every condition has
-fired: the debugger that needed rich interaction now lives in the TUI; client-side virtualisation of
-10,000-row timelines existed to avoid network round-trips, and on loopback a `?from=` page fetch is ~1ms;
-and three of the four dashboards die with the machines and pools they described.
+The terminal hands off for exactly five things, and the reason is the same each time — a terminal is a
+one-column device and these are not one-column problems:
 
-There is one pleasing consequence. The original's most important realtime rule was *"events invalidate,
-they do not patch — patching means reimplementing the projection logic in TypeScript, and it will
-diverge."* Under htmx an SSE event triggers a **server re-render of a fragment**, so the browser holds no
-model to patch and the projection logic can only exist in Go, next to the engine that computed it. **The
-reduced stack makes that rule structural instead of aspirational.**
+| | Why the terminal loses |
+| --- | --- |
+| **diffs at review quality** | syntax highlighting, side-by-side, word-level intra-line, 62 files |
+| **long transcripts with search** | a 40-turn session with tool calls is a *document* |
+| **side-by-side comparison** | two forks, two runs, a benchmark table with its diffs |
+| **a pasteable URL** | into a ticket, a commit message, a note to yourself |
+| **very wide reads** | a 10,000-event timeline, a coordinator's causal tree with twelve children |
 
-Two details that remove the usual pain: `-tags dev` binds the template FS to `os.DirFS` and re-parses per
-request (so editing HTML does not mean rebuilding the binary), and htmx is vendored as a checked-in file
-rather than a CDN link, so a strict `default-src 'self'` CSP holds and the page works with no network.
-
-**Localhost is not an auth mechanism.** Any web page you visit can issue requests to `127.0.0.1`, and so
-can the agent you just spawned. Five cheap controls: bind loopback only (any other address refuses
-without an explicit acknowledgement string in config); a per-start random token in a `0600` file,
-accepted as a bearer header or a one-time `?t=` that sets an `HttpOnly; SameSite=Strict` cookie and
-redirects to strip the query; a `Host` header allowlist (this is what blocks DNS rebinding, and it is the
-control people forget); an `Origin`/`Sec-Fetch-Site` check on every mutating request; and a strict CSP.
-About forty lines of middleware, and it removes the entire class of "a webpage in another tab started a
-run."
+And the dividing test, so the seam can be checked rather than argued about: **if you find yourself doing
+something in the browser more than a few times an hour, it belongs in the TUI.** Starting work, chatting,
+approving small things, and tailing logs are the terminal's; any of them appearing in the browser is the
+signal that the boundary has drifted.
 
 ---
 

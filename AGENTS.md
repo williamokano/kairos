@@ -13,9 +13,9 @@ building, not all of it:
 | --- | --- |
 | [`README.md`](README.md) — the whole idea | [`03-workflows.md`](03-workflows.md) — the YAML spec |
 | [`01-architecture.md`](01-architecture.md) — **the eleven laws**, the components, the architecture tests | [`04-agents.md`](04-agents.md) — launching agent CLIs, typed output, sessions |
-| [`09-limitations.md`](09-limitations.md) — what this cannot do, and the threat model | [`05-gates.md`](05-gates.md) — gates, the constitution, policy, effects |
-| [`10-build-plan.md`](10-build-plan.md) — the build order and the first milestone | [`06-durability.md`](06-durability.md) — the event store, recovery, workspaces, fork |
-| | [`02-config.md`](02-config.md) · [`07-surfaces.md`](07-surfaces.md) · [`08-tasksources.md`](08-tasksources.md) |
+| [`11-limitations.md`](11-limitations.md) — what this cannot do, and the threat model | [`05-gates.md`](05-gates.md) — gates, the constitution, policy, effects |
+| [`12-build-plan.md`](12-build-plan.md) — the build order and the first milestone | [`06-durability.md`](06-durability.md) — the event store, recovery, workspaces, fork |
+| | [`02-config.md`](02-config.md) · [`09-cli-and-tui.md`](09-cli-and-tui.md) · [`08-triggers.md`](08-triggers.md) |
 
 **The laws in `01-architecture.md` are not background reading.** L4′ (one execution chokepoint), L6′
 (execution is confined and recorded), L8 (typed contracts), and L9 (nothing is a special case) each
@@ -55,6 +55,7 @@ Approved dependencies, and nothing else without an ADR:
 | YAML | `sigs.k8s.io/yaml` (JSON-tag compatible) |
 | ULID | `github.com/oklog/ulid/v2` |
 | TUI | `github.com/charmbracelet/bubbletea`, `github.com/charmbracelet/lipgloss` |
+| Syntax highlighting | `github.com/alecthomas/chroma/v2` — **server-side only**, for the web diff viewer. Rendering to spans in Go means no client-side highlighter, no 400 KB of JS, and no CSP exception. The alternative is unhighlighted diffs, which materially weakens the surface. |
 | Compression | `github.com/klauspost/compress/zstd` |
 | Process groups | `golang.org/x/sys/unix` — **importable only by `internal/executor/local`** |
 | Import-graph tests | `golang.org/x/tools/go/packages` (test-only) |
@@ -195,10 +196,13 @@ that document's *Future work* and move on.
 
 Two specific temptations, both of which have already been decided:
 
-- **The deleted distributed layer is not future work.** Do not add a second runtime, a remote executor,
-  a gRPC surface, or a Postgres driver "behind an interface, just in case." `01-architecture.md` and
-  `09-limitations.md` state that the multi-machine path is **foreclosed, not deferred**. Re-opening it
-  is an ADR and a rewrite, not a spare afternoon.
+- **The deleted *fleet* is not future work.** Do not add a Postgres driver, a gRPC surface, or a
+  scheduler "behind an interface, just in case." `01-architecture.md` and `11-limitations.md` state that
+  placement, scoring, affinity, preemption, and capacity planning are **foreclosed, not deferred**.
+  A remote **runner** is a different thing and is specified in [`07-runners.md`](07-runners.md) as
+  permitted work in **phase 4**: one more `Runner` implementation plus a label match. What stays
+  forbidden is the scheduler — placement, scoring, migration, or any per-runner divergence in the event
+  model. If you find yourself adding a scoring function, stop and write an ADR.
 - **`pkg/` ships empty.** There are no third-party integrators to keep compatible, and every exported
   symbol is a promise you pay for later. `internal/` → `pkg/` is a one-commit move when someone
   actually needs it; the reverse is not.
@@ -206,7 +210,7 @@ Two specific temptations, both of which have already been decided:
 ## 8. Limitations must be registered, not merely mentioned
 
 If implementation reveals a limitation — something the system cannot do, does lossily, or does not
-defend against — add an entry to [`09-limitations.md`](09-limitations.md) **in the same change**. A
+defend against — add an entry to [`11-limitations.md`](11-limitations.md) **in the same change**. A
 paragraph in the file where you found it is not enough: a limitation findable only by grep will not be
 found by the person who needed it.
 
@@ -233,16 +237,22 @@ TestArchitecture_dependencyDirection           TestArchitecture_agentSocketRoute
 TestArchitecture_singleWriter
 ```
 
-Plus the four that carry the product's central claims, and which no refactor may weaken:
+Plus the five that carry the product's central claims, and which no refactor may weaken:
 
 ```
 TestEngine_survivesKillMidRun            SIGKILL the daemon mid-agent; the Run still completes
 TestEngine_ctrlCInterruptsThenResumes    Ctrl-C records the interruption BEFORE exiting
 TestEvents_allHistoricalFixturesProject  every fixture ever shipped still upcasts and projects
 TestReplay_matchesProjection             replay folds to the same state, or durability is a word
+TestUI_everyCallHasCLICounterpart        every web/TUI call maps to an API op AND a CLI verb
 ```
 
-`10-build-plan.md` specifies the first two in full, including the step that asserts the *mess* exists
+`TestUI_everyCallHasCLICounterpart` is what keeps the two surfaces at parity and keeps neither of them
+privileged: **if a UI can do it, `curl` can, and `kairos` does.** It walks the route table and the TUI's
+client calls, asserting each maps to a declared API operation with a CLI verb that covers it. Without it,
+one surface grows a private endpoint and parity quietly becomes a claim.
+
+`12-build-plan.md` specifies the first two in full, including the step that asserts the *mess* exists
 before asserting recovery — a recovery test that would pass against a system with no orphans to reap is
 testing nothing.
 

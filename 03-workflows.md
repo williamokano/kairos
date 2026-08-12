@@ -148,7 +148,7 @@ changes.
 
 `hostExclusive: true` is new and exists only because isolation is gone: it serialises a node against
 every other run for the duration, for nodes that touch global host state — one Docker daemon, one
-`:3000`, one global npm cache. See [`09-limitations.md`](09-limitations.md).
+`:3000`, one global npm cache. See [`11-limitations.md`](11-limitations.md).
 
 ---
 
@@ -202,7 +202,7 @@ whose only purpose was managing the consequence of a workspace disappearing.
         every: 30s
         backoff: { factor: 1.5, max: 5m }
       - kind: webhook                       # opt-in, if you run `gh webhook forward`
-        endpoint: "127.0.0.1:7777/hooks/github"
+        endpoint: "127.0.0.1:7717/hooks/github"
         match: { event: check_suite.completed, expr: "$.payload.head_sha == $.input.sha" }
     timeout: 3h
     onTimeout: escalate
