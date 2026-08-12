@@ -34,6 +34,7 @@ the objections were good and deserve replies rather than silence.
 | [0008](0008-terminal-is-a-client.md) | The terminal is a client, not a harness | Accepted |
 | [0009](0009-remote-runners.md) | Remote runners are an executor implementation, not a fleet | **Proposed** |
 | [0010](0010-co-equal-surfaces-sse-plus-post.md) | Two co-equal surfaces, and realtime is SSE plus POST | Accepted |
+| [0011](0011-polling-first-connectors.md) | Outbound polling is the default; webhooks are opt-in and BYO-tunnel | Accepted |
 
 **0009 is the only one not `Accepted`**, and its promotion condition is written into it: the gate-trust
 consequence — a remote runner reports its own gate exit codes — must be registered as a limitation with a

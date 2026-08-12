@@ -81,8 +81,9 @@ gate has defeated the entire safety model.
 
 ## The laws
 
-Fourteen in the original corpus. Eleven survive; three change. The ones that change are where the
-reduction actually happens, so they're stated in full.
+Fourteen in the ancestor corpus. Eleven survive, three change, and one is added. The ones that change are
+where the reduction actually happens, so they're stated in full; the added one (**L15**) is what keeps this
+a machine you delegate to rather than a bot with an agenda.
 
 | | |
 | --- | --- |
@@ -100,6 +101,7 @@ reduction actually happens, so they're stated in full.
 | **L12** | **Determinism where possible, quarantine where not.** Unchanged. Replay only works if the deterministic part actually replays. |
 | **L13′** | **One binary, one directory, zero setup.** *(replaces "useful on one machine, unchanged on twenty")* `kairos` on a clean machine with no config file, no daemon to install, and no external service does useful work. *Forbids:* a required config file before first run, a mandatory external process, an install step beyond the binary. **This forecloses the *fleet*** — placement, scoring, affinity, preemption, and capacity planning are gone and are not coming back. It does **not** forbid a second machine: a run may be pinned to a remote runner ([`07-runners.md`](07-runners.md)), which is one executor implementation and a label match, not a scheduler. Zero setup remains the law: `local` is always present and requires no configuration. |
 | **L14** | **The corpus is the source of truth.** Unchanged. |
+| **L15** | **Kairos never invents work.** *(new)* Every Run traces to a trigger the user configured or a task the user filed, and that trigger is named in the Run's first event. *Forbids:* an idle loop that looks for something useful to do; an actor spawning a Run because it noticed something outside its task; a "suggestions" feature that acts rather than proposes; a scheduled job the user did not configure; any Run whose `trigger.received` cannot be traced to a configured source, a schedule, a filed task, or a parent Run. *Because:* this is the line between a machine you delegate to and an assistant with an agenda, and it is the property that makes everything else auditable — if work can appear spontaneously, "why did it do that" stops having an answer. A classifier proposing a draft for approval is not self-direction; a classifier deciding to send it is. |
 
 **Tie-breakers, reordered.** Originally: event log → isolation/safety → durability → simplicity → DX.
 Now: **1.** correctness of the event log · **2.** durability · **3.** containment (workspace
@@ -190,6 +192,12 @@ TestArchitecture_processesRecordedBeforeSpawn // AST: a recorder call precedes e
 TestArchitecture_noOsExitOutsideMain          // a stray log.Fatal now kills the engine mid-dispatch
 TestArchitecture_agentSocketRouteSubset       // an agent cannot answer its own approval
 TestArchitecture_singleWriter                 // only the writer goroutine holds the write conn
+
+TestEngine_everyRunHasATraceableTrigger       // L15: no Run exists without a configured
+//   trigger, a schedule, a filed task, or a parent Run naming it. Runs the assertion over a
+//   corpus of recorded runs AND over a fuzzed event log, because the failure mode is a Run
+//   appearing with an empty or synthesised trigger — which is what "it decided to be helpful"
+//   looks like in the data.
 ```
 
 Each has a `//go:build violation` fixture package, and `make arch` must fail when the fixture is

@@ -12,14 +12,16 @@ building, not all of it:
 | Always | Then, for what you are building |
 | --- | --- |
 | [`README.md`](README.md) — the whole idea | [`03-workflows.md`](03-workflows.md) — the YAML spec |
-| [`01-architecture.md`](01-architecture.md) — **the eleven laws**, the components, the architecture tests | [`04-agents.md`](04-agents.md) — launching agent CLIs, typed output, sessions |
+| [`01-architecture.md`](01-architecture.md) — **the twelve laws**, the components, the architecture tests | [`04-agents.md`](04-agents.md) — launching agent CLIs, typed output, sessions |
 | [`11-limitations.md`](11-limitations.md) — what this cannot do, and the threat model | [`05-gates.md`](05-gates.md) — gates, the constitution, policy, effects |
 | [`12-build-plan.md`](12-build-plan.md) — the build order and the first milestone | [`06-durability.md`](06-durability.md) — the event store, recovery, workspaces, fork |
 | | [`02-config.md`](02-config.md) · [`09-cli-and-tui.md`](09-cli-and-tui.md) · [`08-triggers.md`](08-triggers.md) |
 
 **The laws in `01-architecture.md` are not background reading.** L4′ (one execution chokepoint), L6′
-(execution is confined and recorded), L8 (typed contracts), and L9 (nothing is a special case) each
-forbid a specific shortcut you will be tempted by within the first week.
+(execution is confined and recorded), L8 (typed contracts), L9 (nothing is a special case), and L15
+(Kairos never invents work) each forbid a specific shortcut you will be tempted by within the first week.
+L15 is the newest and the easiest to breach by accident: a helper that starts a Run without a trigger, a
+retry loop that synthesises one, or a "while we're here" background sweep all violate it.
 
 Build documents (`L00`–`L20` in the build plan) **do not exist yet**. When you write one, it gets all
 ten sections named in §9 — including the ones that add nothing, which say so and why.
@@ -58,6 +60,7 @@ Approved dependencies, and nothing else without an ADR:
 | Syntax highlighting | `github.com/alecthomas/chroma/v2` — **server-side only**, for the web diff viewer. Rendering to spans in Go means no client-side highlighter, no 400 KB of JS, and no CSP exception. The alternative is unhighlighted diffs, which materially weakens the surface. |
 | Compression | `github.com/klauspost/compress/zstd` |
 | Process groups | `golang.org/x/sys/unix` — **importable only by `internal/executor/local`** |
+| OAuth token dance | `golang.org/x/oauth2` — for the Gmail/calendar connectors only. Everything else about those connectors is plain `net/http`; there is no Google SDK, and there does not need to be. |
 | Import-graph tests | `golang.org/x/tools/go/packages` (test-only) |
 | Assertions | stdlib. `github.com/google/go-cmp` for diffs. No testify. |
 
@@ -94,7 +97,9 @@ internal/
   workspace/                # mirrors, --reference clones, CoW, snapshots, GC
   artifact/                 # content-addressed fs store, collect, materialise, GC
   constraint/ effect/ policy/ humanqueue/ tasksource/ transport/ reaper/ doctor/
-  registry/                 # projects, definitions, actors — parse and validate
+  registry/                 # projects, definitions, actors, DOMAIN PROFILES — parse and validate
+                            #   domains.go lives HERE, not in internal/domain/ — see the rule below
+  connector/                # email, telegram, calendar — TaskSource + Effect implementations
   api/                      # net/http handlers. A leaf.
   store/sqlite/             # Open, Migrate, migrations/*.sql (embed.FS)
   archtest/
@@ -106,6 +111,12 @@ Hard rules, each enforced by a test in `internal/archtest`:
 
 - **`internal/domain` imports nothing from `internal/`.** It also imports no `path/filepath`: paths are
   infrastructure, and a domain that knows about paths stops replaying identically.
+- **Two different things are called "domain", and conflating them will cost you a day.**
+  `internal/domain` is the **pure domain model** — types and state machines, zero I/O, the dependency
+  sink. A **Domain profile** ([`13-domains.md`](13-domains.md)) is *registry data* that adapts the engine
+  to a class of work (code, inbox, messaging), and it lives in `internal/registry/domains.go`. A profile
+  is parsed, validated, and versioned like a workflow definition; it is never a package, never imported by
+  the engine directly, and never allowed to reach `internal/domain`.
 - **Only `internal/executor/local` may import `os/exec`, `syscall`, or `golang.org/x/sys`.** Every child
   process in this system is born in one package, so that every child is recorded before it exists and
   killable from the event log alone. `internal/workspace` runs `git` **through the executor**, not
@@ -245,6 +256,7 @@ TestEngine_ctrlCInterruptsThenResumes    Ctrl-C records the interruption BEFORE 
 TestEvents_allHistoricalFixturesProject  every fixture ever shipped still upcasts and projects
 TestReplay_matchesProjection             replay folds to the same state, or durability is a word
 TestUI_everyCallHasCLICounterpart        every web/TUI call maps to an API op AND a CLI verb
+TestEngine_everyRunHasATraceableTrigger  L15 — no Run exists that nobody asked for
 ```
 
 `TestUI_everyCallHasCLICounterpart` is what keeps the two surfaces at parity and keeps neither of them

@@ -51,6 +51,11 @@ admission:
     cpu.heavy: 2          # concurrent build/test/lint       default max(1, NumCPU/4)
   maxOpenDecisions: 5     # stop starting work when 5 things already wait on you
   maxQueued: 40           # beyond this, REJECT rather than queue — silent truncation lies
+  lanes:                  # per-domain concurrency, so cheap work cannot starve expensive work
+    code: 2               #   ...or the reverse, which is the failure that actually happens:
+    inbox: 12             #   200 arriving emails must not consume the slots a coding run needs
+    messaging: 6
+    research: 2
 
 # ─── who does the work ───────────────────────────────────────────────────
 models:
@@ -65,6 +70,11 @@ limits:
   maxCostUSD: 10          # per run
   dailyUSD: 25            # across all runs; exceeding creates a decision, never a silent stop
   ceiling: 50             # a workflow may not raise maxCostUSD above this
+  perDomain:              # a runaway mailing list must not spend the coding budget
+    inbox:     { dailyUSD: 2.00, perRunUSD: 0.05 }
+    messaging: { dailyUSD: 2.00, perRunUSD: 0.10 }
+    research:  { dailyUSD: 5.00, perRunUSD: 1.00 }
+    code:      { dailyUSD: 20.00 }
 
 # ─── how child processes are launched ────────────────────────────────────
 exec:
@@ -154,7 +164,14 @@ time a node execution finishes. First failure wins, and the reason is shown verb
 6. open decisions >= maxOpenDecisions  → "5 decisions already waiting on you"
 7. queued >= maxQueued                 → REJECT (not queue), reported back to the task source
 8. no healthy runner matching runsOn   → "no healthy runner labelled 'macos'"  (terminal, not queued)
+9. domain lane exhausted               → QUEUED, not rejected  ("inbox: 12 of 12 lanes busy")
 ```
+
+**Rule 9 queues where rule 7 rejects, and the difference is deliberate.** Rule 7 rejects because a
+misconfigured integration firing 500 events should produce 500 *visible* rejections. Rule 9 queues because
+a busy hour of email is not a misconfiguration — it is Tuesday, and dropping mail on the floor because the
+lane was full would be the worst possible behaviour for an inbox domain. A flood is handled by
+**degrading to batch** ([`08-triggers.md`](08-triggers.md)), not by rejection.
 
 Rule 8 exists only once you have added runners ([`07-runners.md`](07-runners.md)); with the default
 `local` runner it can never fire. It is **terminal rather than queued**, for the same reason a missing

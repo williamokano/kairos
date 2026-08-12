@@ -50,6 +50,14 @@ kairos beyond "write a file."
 
 ## Polling, and why not webhooks
 
+**This is a decision, not a limitation** — [ADR 0011](adr/0011-polling-first-connectors.md). It reads like
+a concession to having no public URL, and for GitHub it partly is; but for the sources that matter most to
+a personal assistant it is simply the better mechanism. Telegram's `getUpdates?timeout=50`, IMAP `IDLE`,
+and Gmail's `history.list` deltas are all *outbound* connections that behave like push, need no inbound
+reachability, and have no signature-verification surface. The rule is **prefer an outbound long-poll**;
+webhooks stay opt-in behind a tunnel you provide, and the one connector that genuinely requires them
+(WhatsApp Business) is marked as such in [`14-connectors.md`](14-connectors.md).
+
 ```yaml
 tasksources:
   - kind: github-issues
@@ -58,7 +66,27 @@ tasksources:
     flow: implement
     project: orders
     every: 2m
+
+  - kind: gmail                      # see 14-connectors.md
+    account: me@example.com
+    domain: inbox                    # see 13-domains.md
+    every: 2m
+    volume:                          # NEW — required for any high-volume source
+      debounce: 45s                  # coalesce a burst before starting anything
+      batch:
+        mode: digest                 # one run over N items, not N runs
+        maxItems: 500
+        window: 24h
+      degradeToBatch:                # a flood is Tuesday, not a misconfiguration
+        itemsPerMinute: 30           #   above this rate...
+        or: { queueDepth: 50 }       #   ...or this backlog: stop per-item runs,
+                                     #   switch to digest, and say so in the TUI
 ```
+
+**The `volume:` block is new core code, not configuration over existing machinery.** Debounce, batching,
+and rate-triggered degradation all need engine support, and none of them existed when the only sources were
+issue trackers where one item genuinely deserves one run. Without it, connecting a mailbox to a per-item
+workflow is a way to spend your monthly budget before lunch.
 
 One goroutine per enabled source, jittered:
 

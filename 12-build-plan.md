@@ -63,16 +63,19 @@ is unrecoverable later.
 
 ---
 
-## Phase 1 — "It works while I'm not looking" · ~60 days (50–75)
+## Phase 1 — "It works while I'm not looking" · ~72 days (60–90)
 
-**Goal:** the binary you open in the morning, talk to, walk away from, and trust with your credentials.
+**Goal:** the binary you open in the morning, talk to, walk away from, and trust with your credentials —
+and the first domain that is not code.
 
 **Scope.** Effects and compensation (`git`, `gh`) with `Probe`, `Unknown` recovery, reverse-order
-compensation, `idempotencyScope: lineage` · policy file + secrets + the destructive-effect confirmation +
+compensation, `idempotencyScope: lineage` · policy file + secrets + the tiered effect confirmation +
 dry-run · constraints completed (judged, panels, waivers, mandatory project gates) · human decisions ·
 the Conversation aggregate + the native transport · **the TUI**, including the strict decision view ·
 triggers (`cron`, `inbox`, `repo-watch`, `github-issues`, chat) · admission + budget caps + cost
-accounting from token streams · the local notifier.
+accounting from token streams · the local notifier · **the domain layer and the `inbox` domain**
+([`13-domains.md`](13-domains.md)): domain profiles in the registry, workspace-less runs as a first-class
+class, the three non-code gate kinds, domain lanes and per-domain budgets, and the debounce/batch path.
 
 **The demo.**
 > You type `kairos`, say *"the orders integration test is flaky, fix it"*, and close the laptop lid. Later
@@ -93,11 +96,18 @@ accounting from token streams · the local notifier.
 | triggers (five sources) | 6 |
 | admission, concurrency, budgets, cost | 4 |
 | notifier | 1 |
+| **domain layer + workspace-less runs + 3 gate kinds + lanes/budgets + debounce/batch** | **12** |
 | integration + chaos-lite | 6 |
 
 **Ordering note that inverts the original:** human decisions ship **before** effects. An irreversible
 effect requires a recorded human decision, and with no VM to contain a mistake the confirmation path must
 exist before the first destructive effect provider does.
+
+**Why the domain layer is in phase 1 and not later.** It is only ~12 days *because* triggers, effects,
+gates, and the human queue are already being built here — most of the work is deletion (a workspace-less run
+does less) plus three in-process gate kinds. Deferring it would mean building the coding domain's
+assumptions into the engine and then unpicking them, which is the expensive order. And it is what lets the
+`inbox` domain ship as soon as a connector exists.
 
 ---
 
@@ -129,6 +139,35 @@ lease) · full self-check, the chaos harness at 200 runs, backup and restore-tes
 | verify + chaos + backup/restore + stats | 10 |
 | corpus lints (8, reduced from 13) | 3 |
 | integration | 4 |
+
+---
+
+## Phase 2b — "The places work actually arrives from" · ~25 days (20–34)
+
+**Goal:** connect the accounts, so the thing stops being a coding tool.
+
+This is the phase that delivers what the project is actually for, and it is deliberately *not* first:
+it depends on the domain layer (phase 1) and it is worth very little before you can see and approve what
+it does (phases 1–2). **If the personal-assistant use case is the reason you are building this, run
+2b before 2** — nothing in 2b depends on fork, replay, or the debugger.
+
+**Scope.** The `messaging` domain (+~6 days: mostly the classify → act/ask/ignore path and its debounce) ·
+connectors per [`14-connectors.md`](14-connectors.md) (+~19 days): the contract delta (`capabilities`,
+`fetch`, `send` through the effect manager) 3 · **Telegram** 4 · **Gmail read + label** 6 · **Gmail send**
+4 · calendar 2. IMAP is +5 and deferred; WhatsApp is an acknowledgement-gated plugin and not in this
+estimate.
+
+**Build Telegram first**, even though email is the more valuable connector: it is the cheapest complete
+loop (long-poll in, inline-keyboard decision out), and its inline keyboards are the best available answer
+to approving a `glance`-tier decision from your phone with no inbound endpoint.
+
+**The demo.**
+> At 07:30 a digest run summarises overnight mail in one run over 40 messages, for about two cents.
+> Through the day, arriving mail gets labelled by a local model with no confirmation and no cloud cost.
+> A Telegram message arrives; Kairos classifies it, drafts a reply, and — because sending is `type` tier —
+> **parks it and pings your phone with `[send] [edit] [ignore]`.** You tap `edit` from a train.
+> Then a mailing list dumps 200 messages in a minute: it **degrades to batch**, says so in the TUI, and
+> your coding lane is untouched because the lanes are separate.
 
 ---
 
@@ -182,9 +221,21 @@ until you can see what is happening on the first.
 
 ---
 
-**Total ≈ 203 developer-days**, or nine to eleven months solo at a sustainable pace. That is roughly a
-quarter of the original corpus's implied scope — which is about right: the distributed half was more than
-half the *work* and less than half the *ideas*.
+**Total ≈ 240 developer-days**, or eleven to fourteen months solo at a sustainable pace.
+
+That is a real number and it deserves an honest response rather than a shrug: **you do not have to build
+all of it, and the phases are ordered so that you don't.** The useful subsets:
+
+| If you want | Build | Days |
+| --- | --- | --- |
+| a durable coding agent that cannot skip its gates | 0 + 1 | ~112 |
+| …plus email and Telegram working on your behalf | 0 + 1 + **2b** | ~137 |
+| …plus the browser surface | + 3 | ~182 |
+| everything, including fork/replay and runners | + 2 + 4 | ~240 |
+
+The second row is the one that matches what this project is *for*, and it does not require phase 2, 3, or
+4. Phase 0 is the only phase with no useful subset — an event store with shortcuts in it is the one thing
+that cannot be fixed later.
 
 ---
 

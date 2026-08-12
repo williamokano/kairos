@@ -9,7 +9,7 @@ by saying exactly how far.
 
 ---
 
-## 1. The amendment
+## 1. The scope correction
 
 [`01-architecture.md`](01-architecture.md) (L13′) and [`11-limitations.md`](11-limitations.md) both say
 the multi-machine path is **foreclosed, not deferred**. That was written against a specific thing, and
@@ -37,7 +37,7 @@ the event log rather than in memory, `Chunk` stayed a wire-shaped struct, and `T
 stayed the only cancellation API. Those were kept precisely so that a second backend would cost one
 package instead of a redesign. This is that package.
 
-### Amendments to apply
+### Amendments this document required elsewhere (all applied)
 
 1. **`01-architecture.md`, L13′** — retitle from *"One binary, one directory, zero setup"* keeping the
    text, and replace the final clause. Currently: *"This forecloses the twenty-machine path rather than

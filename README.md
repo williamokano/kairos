@@ -1,10 +1,21 @@
 # Kairos
 
-**One binary. One machine. It reads your triggers, launches agent CLIs on the task, and runs them
-through a durable workflow with gates you cannot skip.**
+**One binary. One machine. You point it at the places your work arrives from, and it works through
+them on your behalf — durably, with gates you cannot skip and a human decision wherever one is
+warranted.**
+
+A task arrives — a GitHub issue, an email, a Telegram message, a line you typed — and Kairos runs it
+through a workflow whose steps are executed by whichever LLM CLI, shell command, or human is right for
+that step. It is the **orchestrator**, not the agent: it spawns agents, holds the state they cannot,
+and enforces the rules they forget.
 
 No infrastructure: no VMs, no containers, no Kubernetes, no remote nodes, no Postgres, no gRPC. The
 host machine *is* the worker, and the host's installed tooling *is* the image.
+
+> **It has no agenda.** Kairos never invents work. Every run traces to a trigger you configured or a
+> task you filed, and the trace is in the event log. There is no idle loop deciding to be helpful, no
+> agent spawning work because it noticed something, no drift toward a personality. It is a machine you
+> feed tasks to — closer to a build server that can think than to an assistant with opinions.
 
 > **Status: design, not code.** Nothing here is implemented yet. These documents are written so that a
 > coding agent or a human can pick up exactly one of them, implement it in isolation, and know how it
@@ -15,18 +26,35 @@ host machine *is* the worker, and the host's installed tooling *is* the image.
 
 ---
 
+## What you point it at
+
+Four things you would actually set up, and they exercise every mechanism in the design:
+
+| You want | Trigger | What runs | Who confirms |
+| --- | --- | --- | --- |
+| *"every morning, summarise my inbox"* | `cron 07:30` | one **digest** run over N emails — batched deliberately, not one run per email | nobody; it only writes a summary |
+| *"label mail as it arrives"* | mail poll | a cheap **local** model classifies, then one reversible label effect | nobody — applying a label is `silent` tier |
+| *"when a Telegram message arrives, reply or ask me"* | Telegram long-poll | classify → draft → **either** send **or** park for you, as a routing outcome | you, for anything outbound: sending is `type` tier |
+| *"implement this issue"* | GitHub issue labelled `kairos`, or `kairos do "…"` | plan → implement → gates → review → PR, in a git clone | you, before the PR opens |
+
+The first three have **no git repo, no diff, and no build** — which is why the model had to generalise
+beyond code; see [`13-domains.md`](13-domains.md). The engine, the event log, the durability, the typed
+contracts, and the human queue are identical across all four.
+
 ## The loop
 
 Everything the binary does is one loop, and every arrow is an event appended to a log before
-anything happens.
+anything happens. The nodes below are a coding run; an inbox run has the same shape with cheaper nodes
+and no workspace.
 
 ```text
   TRIGGERS
   ┌──────────────────────────────────────────────────────────────┐
-  │  tasksource poll   github issues · jira · linear · file inbox │
-  │  kairos do "…"     you publish a task yourself                │
-  │  kairos chat       a message in the TUI                        │
-  │  kairos run f.yaml a workflow, by hand                         │
+  │  poll            github · jira · linear · email · telegram    │
+  │  schedule        cron: every day at 07:30                     │
+  │  kairos do "…"   you publish a task yourself                  │
+  │  kairos chat     a message in the TUI or the web UI            │
+  │  file inbox      drop a .md file in ~/.kairos/inbox/           │
   └───────────────────────────┬──────────────────────────────────┘
                               │  append trigger.received
                               ▼
@@ -195,7 +223,7 @@ single most important one to not break while building this.
 
 | Trigger | Mechanism | Notes |
 | --- | --- | --- |
-| **Task source poll** | a ticker in-process; `gh issue list --json …` etc. | Polling, not webhooks: a laptop has no public URL. Cursor + dedup key stored in SQLite. |
+| **Task source poll** | a ticker in-process; `gh issue list`, Telegram `getUpdates`, Gmail `history.list` | Polling by decision, not by limitation — [ADR 0011](adr/0011-polling-first-connectors.md). Cursor + dedup key in SQLite. |
 | **`kairos do "…"`** | you publish a task directly | Runs the built-in `adhoc` workflow: classify → implement → gate → confirm. |
 | **`kairos chat`** | a message in the TUI | A conversation spanning many runs. Follow-ups resume the same agent session. |
 | **`kairos run f.yaml`** | a named workflow, by hand | The scripting path; what CI-like use looks like. |
@@ -308,6 +336,11 @@ confirm-tier effect.
   is JSON-Schema validated; the agent gets one in-session repair turn with the validation errors,
   and `kairos check-output` is on its PATH so it can self-check before finishing.
 - **You are told what a run cost before it starts and while it runs.**
+- **Nothing outbound happens without a decision proportional to its cost.** Applying a label is silent;
+  sending an email needs you to type the word. The tiering is a property of the effect declared in
+  policy, and an actor cannot nominate its own ([`05-gates.md`](05-gates.md)).
+- **Nothing runs that you did not ask for.** Every run names the trigger that produced it. There is no
+  code path from "the system noticed something" to "the system did something".
 
 ## The guarantees it does not make
 
@@ -328,14 +361,16 @@ confirm-tier effect.
 
 | Doc | Contents |
 | --- | --- |
-| [`01-architecture.md`](01-architecture.md) | What runs inside the one binary; the eleven laws; the executor chokepoint |
+| [`01-architecture.md`](01-architecture.md) | What runs inside the one binary; the twelve laws; the executor chokepoint |
 | [`02-config.md`](02-config.md) | Every configuration field, its default, and admission control |
 | [`03-workflows.md`](03-workflows.md) | The reduced YAML spec — nodes, edges, gates, waits, spawn |
 | [`04-agents.md`](04-agents.md) | Launching `claude`/`codex`/`gemini` headless; typed output; sessions; credentials |
-| [`05-gates.md`](05-gates.md) | The constitution mechanism — seven gate kinds, and why they cannot be bluffed |
+| [`05-gates.md`](05-gates.md) | The constitution mechanism — ten gate kinds, decision tiers, and why gates cannot be bluffed |
 | [`06-durability.md`](06-durability.md) | SQLite event store, recovery, workspaces, fork/replay, host preflight |
 | [`07-runners.md`](07-runners.md) | The executor seam, and plugging in remote runners to spread load |
-| [`08-triggers.md`](08-triggers.md) | Triggers, polling, dedup, and the stdio plugin contract |
+| [`08-triggers.md`](08-triggers.md) | Triggers, polling, dedup, batching, and the stdio plugin contract |
+| [`13-domains.md`](13-domains.md) | **Work that isn't code** — inbox, messaging, research; what a gate is with no compiler |
+| [`14-connectors.md`](14-connectors.md) | Email, Telegram, calendar; WhatsApp honestly; scopes and the injection surface |
 | [`09-cli-and-tui.md`](09-cli-and-tui.md) | The command surface, the ten TUI screens, the approval screen |
 | [`10-webui.md`](10-webui.md) | The web UI — a co-equal surface, at parity, realtime over SSE |
 | [`11-limitations.md`](11-limitations.md) | What this genuinely cannot do, stated as consequences |
@@ -343,9 +378,9 @@ confirm-tier effect.
 | [`AGENTS.md`](AGENTS.md) | **The constitution.** Read it before writing code — toolchain, layout, the hard rules, definition of done |
 | [`adr/`](adr/README.md) | The decisions, dated, with their alternatives and revisit triggers |
 
-**The laws this variant obeys**, reduced from the original fourteen to eleven, live in
-[`01-architecture.md`](01-architecture.md#the-laws). Two are new and worth stating here because they
-are the ones the reduction turns on:
+**The twelve laws** live in [`01-architecture.md`](01-architecture.md#the-laws) — eleven inherited from the
+ancestor design, three of those rewritten, and one added. Three are worth stating here because they are the
+ones everything else turns on:
 
 - **Execution has exactly one chokepoint.** Every subprocess is created by one package, with an
   explicit cwd inside the run's workspace, an allow-listed environment, its own process group, and
@@ -353,3 +388,7 @@ are the ones the reduction turns on:
 - **One binary, one directory, zero setup.** `kairos` on a clean machine with no config file, no
   daemon, and no external service does useful work. Anything that requires setup before first use
   is a bug.
+- **Kairos never invents work.** Every run traces to a trigger you configured or a task you filed, named
+  in the run's first event. No idle loop looking for something useful to do, no actor spawning work
+  because it noticed something, no suggestions feature that acts. This is the line between a machine you
+  delegate to and an assistant with an agenda, and it is enforced by a test rather than by good intentions.
