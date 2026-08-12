@@ -372,9 +372,14 @@ window and its CLI warning both disappear.
 > inputs, and definitions given identical recorded upstream state. It is not a time machine, and it does
 > not resume a train of thought.
 
-`kairos verify` runs replay over all retained runs and asserts the fold matches the projection. Keep the
-deliberately-injected-impurity test that proves it has teeth: without it, "the domain is deterministic"
-is a comment.
+`kairos verify` runs replay over all retained runs and asserts the fold matches the projection
+(`TestReplay_matchesProjection`). Keep the deliberately-injected-impurity test that proves it has teeth:
+without it, "the domain is deterministic" is a comment.
+
+And keep the one that makes fork and replay survive schema evolution
+(`TestEvents_allHistoricalFixturesProject`): **every event type ships a schema and a fixture per version,
+and every fixture ever shipped must still upcast and project.** That single test is what makes a
+three-month-old run still forkable in year three, and it is the cheapest real test in the system.
 
 ---
 

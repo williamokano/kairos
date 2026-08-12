@@ -337,6 +337,7 @@ confirm-tier effect.
 | [`08-tasksources.md`](08-tasksources.md) | Triggers, polling, dedup, and the stdio plugin contract |
 | [`09-limitations.md`](09-limitations.md) | What this genuinely cannot do, stated as consequences |
 | [`10-build-plan.md`](10-build-plan.md) | Four phases, the demo that proves each, honest effort estimates |
+| [`AGENTS.md`](AGENTS.md) | **The constitution.** Read it before writing code — toolchain, layout, the hard rules, definition of done |
 
 **The laws this variant obeys**, reduced from the original fourteen to eleven, live in
 [`01-architecture.md`](01-architecture.md#the-laws). Two are new and worth stating here because they
