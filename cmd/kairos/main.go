@@ -1,39 +1,23 @@
 // Command kairos is the daemon, the executor, the CLI, and the TUI, all in
 // one binary. This is the only file in the repository allowed to call
 // os.Exit or log.Fatal — a stray Fatal anywhere else would kill a run
-// mid-dispatch (AGENTS.md §2).
+// mid-dispatch (AGENTS.md §2). Alongside internal/executor/local, it is
+// also one of only two places permitted os/exec/syscall: starting the
+// daemon itself (daemonstart_exec.go) is the binary launching its own
+// second role, not a workflow actor process — see
+// internal/cli/daemonstart.go and L04-daemon-api-cli.md's decision #4.
+// serve.go is the composition root for the daemon's HTTP wiring, which
+// must import internal/api — the one package no other package may import
+// (dependencyDirection's "nothing imports internal/api" rule) except this
+// one, its designated composition root.
 package main
 
 import (
-	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
-
-	"github.com/williamokano/kairos/internal/version"
+	"github.com/williamokano/kairos/internal/cli"
 )
 
 func main() {
-	root := &cobra.Command{
-		Use:           "kairos",
-		Short:         "Kairos: a durable, typed, event-sourced orchestration engine.",
-		SilenceUsage:  true,
-		SilenceErrors: false,
-	}
-	root.AddCommand(newVersionCmd())
-
-	if err := root.Execute(); err != nil {
-		os.Exit(1)
-	}
-}
-
-func newVersionCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "version",
-		Short: "print the kairos build version",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), version.String())
-			return err
-		},
-	}
+	os.Exit(cli.Execute(os.Args[1:], daemonStarter{}, serve))
 }

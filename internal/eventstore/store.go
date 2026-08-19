@@ -56,6 +56,13 @@ type Store interface {
 	// Rebuild forces every registered projection to Reset and replay,
 	// regardless of its recorded version.
 	Rebuild(ctx context.Context) error
+	// ListRuns reads the run_index projection, optionally filtered by
+	// status. Backs `kairos ls`.
+	ListRuns(ctx context.Context, status *domain.RunStatus) ([]RunSummary, error)
+	// GetRunState reads the run_state_projection blob for runID, folded
+	// via domain.Advance at write time (see projection_runstate.go) — not
+	// re-derived here. Backs `kairos show`.
+	GetRunState(ctx context.Context, runID string) (domain.RunState, bool, error)
 	Close() error
 }
 

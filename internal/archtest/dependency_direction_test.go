@@ -9,16 +9,32 @@ import "testing"
 var forbiddenEdges = []struct {
 	name      string
 	forbidden string
-	exempt    string // the package allowed to import it, if any
+	exempt    []string // packages allowed to import it
 }{
-	{name: "nothing imports internal/api (it is a leaf)", forbidden: modulePath + "/internal/api", exempt: modulePath + "/internal/api"},
+	// internal/api is a leaf: no OTHER internal package may import it, so
+	// two internal packages can never grow a hidden coupling through it.
+	// cmd/kairos is exempt as the binary's composition root — the same
+	// posture it already holds for os.Exit/os/exec/syscall — because
+	// wiring the daemon's HTTP handlers together has to happen somewhere,
+	// and main.go/serve.go's whole job is being that somewhere
+	// (L04-daemon-api-cli.md's decision #4's sibling reasoning).
+	{name: "nothing but cmd/kairos imports internal/api (it is a leaf)", forbidden: modulePath + "/internal/api", exempt: []string{modulePath + "/internal/api", mainPkg}},
+}
+
+func contains(ss []string, s string) bool {
+	for _, v := range ss {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 func TestArchitecture_dependencyDirection(t *testing.T) {
 	t.Run("realTree", func(t *testing.T) {
 		for _, pkg := range loadPkgs(t, nil, "./...") {
 			for _, edge := range forbiddenEdges {
-				if pkg.PkgPath == edge.exempt {
+				if contains(edge.exempt, pkg.PkgPath) {
 					continue
 				}
 				if hit := importsAny(pkg, edge.forbidden); len(hit) > 0 {

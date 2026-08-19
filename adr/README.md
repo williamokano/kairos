@@ -35,9 +35,11 @@ the objections were good and deserve replies rather than silence.
 | [0009](0009-remote-runners.md) | Remote runners are an executor implementation, not a fleet | **Proposed** |
 | [0010](0010-co-equal-surfaces-sse-plus-post.md) | Two co-equal surfaces, and realtime is SSE plus POST | Accepted |
 | [0011](0011-polling-first-connectors.md) | Outbound polling is the default; webhooks are opt-in and BYO-tunnel | Accepted |
+| [0012](0012-daemon-lock-without-flock.md) | The daemon lock is a PID file, not `flock` | **Proposed** |
 
-**0009 is the only one not `Accepted`**, and its promotion condition is written into it: the gate-trust
+**0009 and 0012 are not `Accepted`.** 0009's promotion condition is written into it: the gate-trust
 consequence — a remote runner reports its own gate exit codes — must be registered as a limitation with a
 Detection line before it can be accepted. That is now done (NL-14 in
 [`../11-limitations.md`](../11-limitations.md)), so what remains is a decision to build it rather than a
-gap in the reasoning.
+gap in the reasoning. 0012's revisit trigger is L06 landing — `internal/executor/local` existing is what
+lets the daemon lock move off a PID file onto a real kernel lock.

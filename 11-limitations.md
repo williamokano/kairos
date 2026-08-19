@@ -222,10 +222,14 @@ with `--store-path` as the escape (**shipped**).
 
 **NL-07 · Two invocations of one binary.**
 Two engines advancing one run is a `(stream, sequence)` race that the unique constraint turns into
-permanently halted runs.
-*Mitigations:* `flock` on `~/.kairos/daemon.lock`; every subcommand is a **client** of the running
+permanently halted runs. **Superseded in L04:** the lock is a PID file plus a socket-dial liveness
+probe, not `flock` — `syscall.Flock` is restricted to `internal/executor/local` (AGENTS.md §2), which
+does not exist until L06 ([ADR 0012](adr/0012-daemon-lock-without-flock.md)).
+*Mitigations:* PID-file lock claimed via `O_CREATE|O_EXCL`, with a stale lock detected and cleared by a
+failed socket dial (**shipped**, `cmd/kairos/serve.go`); every subcommand is a **client** of the running
 instance and starts one only if absent (**shipped**).
-*Detection:* loud, by construction.
+*Detection:* loud, by construction — a second `kairos serve` refuses to start and names the PID holding
+the lock.
 
 **NL-08 · Workflow definitions are arbitrary code execution.**
 A `shell` actor's command, a deterministic constraint's check, and an output expression all run on the
@@ -286,6 +290,37 @@ unredacted.
 catches shaped secrets in the *diff* but not in the transcript (**shipped**, partial); artifact retention
 defaults expire transcripts in 30 days (**shipped**, weak).
 *Detection:* run the redactor's pattern set over the artifact store in `kairos db verify` and report hits.
+
+**NL-26 · No peer-credential check on the daemon socket.**
+`SO_PEERCRED`/`LOCAL_PEERCRED` would confirm the connecting *process*, not merely the connecting *uid*,
+is one the user intended. Implementing it needs `syscall`, which AGENTS.md §2 restricts to
+`internal/executor/local` — a package that does not exist until L06, three build documents after the
+daemon socket (L04) ships.
+*Blast radius:* identical to "any local process running as you can already read/write `~/.kairos`
+today" — no new capability. Any process running as the daemon's uid can open `daemon.sock` and issue API
+calls; filesystem permissions already restrict that to the daemon's own uid, so the gap is a missing
+second factor, not an open door.
+*Mitigations:* `~/.kairos` at `0700`, `daemon.sock` at `0600`, both owned by the daemon's uid
+(**shipped**, `internal/api.Listen`, enforced by `TestListen_bindsAt0600`); `SO_PEERCRED` verification
+(**none**).
+*Detection:* `kairos doctor` reports the socket's mode and owner.
+
+**NL-27 · Starting a run is two non-transactional appends, and a crash between them is a known gap.**
+`POST /runs` appends `TriggerReceived`, then folds `domain.Advance` once to resolve
+`DefinitionRef → Graph`, then appends `RunStarted`. These are two separate `AppendIf` calls, not one
+transaction — SQLite transactions are per-connection and the CAS append is the store's own atomicity
+boundary, not the API handler's. A daemon crash (or any error) between the two calls leaves a run with
+exactly one event: `TriggerReceived` and no `RunStarted`, hence no `Graph`, hence nothing for the
+engine to dispatch once L05 exists.
+*Blast radius:* one stuck run per crash-during-create, indistinguishable from "still being created" by
+anything that doesn't know the two-call shape. Never corrupted, never silently completed — proven by
+`TestCreateRun_crashBetweenTheTwoAppendsLeavesOnlyTriggerReceived` (`internal/api/crash_gap_test.go`),
+which simulates the crash deterministically rather than racing a real `kill -9`.
+*Mitigations:* none yet. **Registered as L05 Future work**: reconciliation-on-startup must recognise a
+run with `TriggerReceived` and no `RunStarted` past some threshold and either retry the fold or route it
+to `RunRejected`, rather than leaving it silently stuck forever.
+*Detection:* `kairos db verify`'s replay-and-diff will surface such a run as folding to `RunPending`
+forever; a future health check could flag `TriggerReceived`-only streams older than a threshold directly.
 
 **NL-13 · The audit log is not tamper-proof.**
 The agent can write `~/.kairos/kairos.db` unless G6–G9 are enabled.

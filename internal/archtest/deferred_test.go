@@ -17,5 +17,7 @@ func TestArchitecture_processesRecordedBeforeSpawn(t *testing.T) {
 }
 
 func TestArchitecture_agentSocketRouteSubset(t *testing.T) {
-	t.Skip("requires the daemon's route tables; implemented in L04")
+	t.Skip("requires the narrow agent-facing socket's route table (check-output/artifact " +
+		"stage/ask-human), distinct from L04's admin daemon socket the CLI/TUI/web use; " +
+		"implemented alongside actor invocation (L08 actor sdk + sessions)")
 }
