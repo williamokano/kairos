@@ -1,0 +1,5 @@
+name: bad-missing-output
+
+nodes:
+  - id: n1
+    actor: claude

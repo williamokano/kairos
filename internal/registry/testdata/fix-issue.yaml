@@ -1,0 +1,37 @@
+name: fix-issue
+params: { issue: "int!" }
+
+nodes:
+  - id: plan
+    actor: claude
+    prompt: |
+      Read issue #{{ .params.issue }} with `gh issue view {{ .params.issue }}`.
+      Break it into tasks. Every task needs at least one acceptance criterion.
+    output:
+      objective: "string!"
+      tasks: ["string!"]
+
+  - id: implement
+    actor: claude
+    workspace: write
+    inputs:
+      tasks: "$.outputs.plan.tasks"
+    output:
+      branch: "string!"
+      sha: "string!"
+      summary: "string!"
+    gates: [build, lint, no-todos, no-secrets, guardrails-untouched]
+
+  - id: approve
+    actor: human
+    inputs:
+      summary: "$.outputs.implement.summary"
+    output:
+      decision: "string!"
+      reason: "string"
+
+  - id: pr
+    actor: builtin.gh-pr
+    inputs:
+      head: "$.outputs.implement.branch"
+      title: "$.outputs.plan.objective"

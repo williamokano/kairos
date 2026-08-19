@@ -1,0 +1,291 @@
+package registry
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/williamokano/kairos/internal/domain"
+)
+
+// agentActors are the built-in actor kinds 03-workflows.md calls "an agent
+// actor" for retry-defaulting purposes (decision #5's neighbour: which
+// actors get the write-node retry upgrade).
+var agentActors = map[string]bool{"claude": true, "codex": true, "gemini": true, "local": true}
+
+// requiresOutputSchema reports whether actor's output must be
+// author-declared (agent and shell actors — L8's typed-contract concern)
+// versus optional-with-a-permissive-default (human and builtin.* actors,
+// whose contract is defined by the actor implementation itself, not by
+// free-form LLM JSON the corpus's typed-contracts law exists to guard).
+func requiresOutputSchema(actor string) bool {
+	if actor == "human" || actor == "noop" {
+		return false
+	}
+	if len(actor) >= 8 && actor[:8] == "builtin." {
+		return false
+	}
+	return true
+}
+
+// ApplyDefaults extracts every node's dynamic-shaped fields (output,
+// inputs, on, wait, params) from doc's raw map, applies every default from
+// 03-workflows.md's defaults table, compiles output/params schemas, and
+// returns the fully-defaulted Definition. It does not run the publish
+// validator — that is Validate's job, called separately by Load.
+func ApplyDefaults(doc rawDoc) (Definition, error) {
+	def := Definition{Name: doc.typed.Name}
+
+	if paramsAny, ok := doc.raw["params"].(map[string]any); ok {
+		schema, err := compileOutputShorthand(paramsAny)
+		if err != nil {
+			return Definition{}, fmt.Errorf("compiling params schema: %w", err)
+		}
+		def.ParamsSchema = schema
+	}
+
+	def.Limits = defaultLimits(doc.typed.Limits)
+
+	nodeMaps := doc.nodeMaps()
+	nodes := make([]NodeDef, 0, len(doc.typed.Nodes))
+	for i, yn := range doc.typed.Nodes {
+		var rawNode raw
+		if i < len(nodeMaps) {
+			rawNode = nodeMaps[i]
+		}
+		nd, err := defaultNode(yn, rawNode)
+		if err != nil {
+			return Definition{}, fmt.Errorf("node %q: %w", yn.ID, err)
+		}
+		nodes = append(nodes, nd)
+	}
+	def.Nodes = nodes
+
+	return def, nil
+}
+
+func defaultLimits(yl *yamlLimits) LimitsDef {
+	limits := LimitsDef{
+		WallClock:         2 * time.Hour,
+		MaxCostUSD:        10,
+		MaxNodeExecutions: 100,
+		MaxSpawnDepth:     2,
+		LoopGuard:         LoopGuardDef{MaxIterationsPerNode: 3, OnExceeded: "escalate-to-human"},
+	}
+	if yl == nil {
+		return limits
+	}
+	if yl.WallClock != "" {
+		if d, err := time.ParseDuration(yl.WallClock); err == nil {
+			limits.WallClock = d
+		}
+	}
+	if yl.MaxCostUSD != 0 {
+		limits.MaxCostUSD = yl.MaxCostUSD
+	}
+	if yl.MaxNodeExecutions != 0 {
+		limits.MaxNodeExecutions = yl.MaxNodeExecutions
+	}
+	if yl.MaxSpawnDepth != 0 {
+		limits.MaxSpawnDepth = yl.MaxSpawnDepth
+	}
+	if yl.LoopGuard != nil {
+		if yl.LoopGuard.MaxIterationsPerNode != 0 {
+			limits.LoopGuard.MaxIterationsPerNode = yl.LoopGuard.MaxIterationsPerNode
+		}
+		if yl.LoopGuard.OnExceeded != "" {
+			limits.LoopGuard.OnExceeded = yl.LoopGuard.OnExceeded
+		}
+	}
+	return limits
+}
+
+func defaultNode(yn yamlNode, rn raw) (NodeDef, error) {
+	nd := NodeDef{
+		ID:              domain.NodeID(yn.ID),
+		Actor:           yn.Actor, // no default — decision #5: required per node
+		Prompt:          yn.Prompt,
+		Context:         yn.Context,
+		Workspace:       WorkspaceMode(yn.Workspace),
+		WorkspacePaths:  yn.WorkspacePaths,
+		HostExclusive:   yn.HostExclusive,
+		SessionAffinity: yn.SessionAffinity,
+		Gates:           yn.Gates, // decision #6: no default library, empty when omitted
+		Effects:         yn.Effects,
+		Optional:        yn.Optional,
+	}
+	if nd.Workspace == "" {
+		nd.Workspace = WorkspaceRead
+	}
+	if nd.Gates == nil {
+		nd.Gates = []string{}
+	}
+	if nd.Effects == nil {
+		nd.Effects = []string{}
+	}
+
+	timeout, err := parseDuration(yn.Timeout, 30*time.Minute)
+	if err != nil {
+		return NodeDef{}, err
+	}
+	nd.Timeout = timeout
+
+	nd.Retry = defaultRetry(yn.Retry, nd.Workspace, nd.Actor)
+
+	for _, a := range yn.Artifacts {
+		nd.Artifacts = append(nd.Artifacts, ArtifactSpec(a))
+	}
+
+	if yn.Resources != nil && yn.Resources.Model != nil {
+		nd.Resources = ResourcesDef{
+			ModelClass: yn.Resources.Model.Class,
+			ModelSlots: yn.Resources.Model.Slots,
+			MaxCostUSD: yn.Resources.Model.MaxCostUSD,
+		}
+	}
+
+	if yn.Spawn != nil {
+		nd.Spawn = &SpawnDef{Workflow: yn.Spawn.Workflow, ForEach: yn.Spawn.ForEach, Strategy: yn.Spawn.Strategy, InheritWorkspace: yn.Spawn.InheritWorkspace}
+	}
+	if yn.Join != nil {
+		nd.Join = &JoinDef{Mode: yn.Join.Mode, OnChildFailure: yn.Join.OnChildFailure}
+	}
+
+	// Dynamic-shaped fields, from the raw map.
+	if inputsAny, ok := rn["inputs"].(map[string]any); ok {
+		nd.Inputs = make(map[string]InputRef, len(inputsAny))
+		for k, v := range inputsAny {
+			ref, err := parseInputRef(v)
+			if err != nil {
+				return NodeDef{}, fmt.Errorf("inputs.%s: %w", k, err)
+			}
+			nd.Inputs[k] = ref
+		}
+	}
+
+	if onAny, ok := rn["on"].(map[string]any); ok {
+		nd.On = map[domain.EdgeTrigger]domain.NodeID{}
+		for k, v := range onAny {
+			if s, ok := v.(string); ok {
+				nd.On[domain.EdgeTrigger(k)] = domain.NodeID(s)
+			}
+		}
+	}
+
+	if err := defaultWait(&nd, rn); err != nil {
+		return NodeDef{}, err
+	}
+
+	if err := defaultOutputSchema(&nd, rn); err != nil {
+		return NodeDef{}, err
+	}
+
+	return nd, nil
+}
+
+func defaultRetry(yr *yamlRetry, workspace WorkspaceMode, actor string) RetryDef {
+	rd := RetryDef{MaxAttempts: 1}
+	if workspace == WorkspaceWrite && agentActors[actor] {
+		rd = RetryDef{MaxAttempts: 2, RetryOn: []string{"schema-invalid", "failure"}, FreshWorkspace: true}
+	}
+	if yr == nil {
+		return rd
+	}
+	if yr.MaxAttempts != 0 {
+		rd.MaxAttempts = yr.MaxAttempts
+	}
+	if len(yr.RetryOn) > 0 {
+		rd.RetryOn = yr.RetryOn
+	}
+	if yr.FreshWorkspace {
+		rd.FreshWorkspace = true
+	}
+	for _, m := range yr.Mutate {
+		step := MutateStep{Attempt: m.Attempt, Actor: m.Actor}
+		if m.Resources != nil && m.Resources.Model != nil {
+			step.ModelClass = m.Resources.Model.Class
+		}
+		rd.Mutate = append(rd.Mutate, step)
+	}
+	return rd
+}
+
+func defaultWait(nd *NodeDef, rn raw) error {
+	waitAny, ok := rn["wait"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	wd := &WaitDef{}
+	if onTimeout, ok := waitAny["onTimeout"].(string); ok {
+		wd.OnTimeout = onTimeout
+	}
+	if timeoutStr, ok := waitAny["timeout"].(string); ok {
+		d, err := time.ParseDuration(timeoutStr)
+		if err != nil {
+			return fmt.Errorf("wait.timeout: %w", err)
+		}
+		wd.Timeout = d
+	}
+	if onList, ok := waitAny["on"].([]any); ok {
+		for _, entryAny := range onList {
+			entry, ok := entryAny.(map[string]any)
+			if !ok {
+				continue
+			}
+			src := WaitSource{}
+			if kind, ok := entry["kind"].(string); ok {
+				src.Kind = WaitKind(kind)
+			}
+			if every, ok := entry["every"].(string); ok {
+				if d, err := time.ParseDuration(every); err == nil {
+					src.Every = d
+				}
+			}
+			if until, ok := entry["until"].(string); ok {
+				src.Until = until
+			}
+			if endpoint, ok := entry["endpoint"].(string); ok {
+				src.Endpoint = endpoint
+			}
+			if match, ok := entry["match"].(string); ok {
+				src.Match = match
+			}
+			if cmdAny, ok := entry["command"].([]any); ok {
+				for _, c := range cmdAny {
+					if s, ok := c.(string); ok {
+						src.Command = append(src.Command, s)
+					}
+				}
+			}
+			wd.On = append(wd.On, src)
+		}
+	}
+	nd.Wait = wd
+	return nil
+}
+
+func defaultOutputSchema(nd *NodeDef, rn raw) error {
+	if outAny, ok := rn["output"].(map[string]any); ok && len(outAny) > 0 {
+		schema, err := compileOutputShorthand(outAny)
+		if err != nil {
+			return fmt.Errorf("output: %w", err)
+		}
+		nd.OutputSchema = schema
+		return nil
+	}
+	if schemaAny, ok := rn["outputSchema"].(map[string]any); ok && len(schemaAny) > 0 {
+		schema, err := compileSchemaDoc(schemaAny)
+		if err != nil {
+			return fmt.Errorf("outputSchema: %w", err)
+		}
+		nd.OutputSchema = schema
+		return nil
+	}
+	if !requiresOutputSchema(nd.Actor) {
+		schema, err := permissiveSchema()
+		if err != nil {
+			return err
+		}
+		nd.OutputSchema = schema
+	}
+	return nil
+}

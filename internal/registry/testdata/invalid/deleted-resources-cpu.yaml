@@ -1,0 +1,9 @@
+name: bad-resources
+
+nodes:
+  - id: n1
+    actor: claude
+    resources:
+      cpu: 2
+    output:
+      x: "string!"

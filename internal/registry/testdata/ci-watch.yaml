@@ -1,0 +1,28 @@
+name: ci-watch-demo
+
+nodes:
+  - id: implement
+    actor: claude
+    workspace: write
+    output:
+      branch: "string!"
+      sha: "string!"
+
+  - id: ci-watch
+    actor: builtin.gh-checks
+    workspace: none
+    inputs:
+      sha: "$.outputs.implement.sha"
+    wait:
+      "on":
+        - kind: poll
+          command: ["gh", "run", "list", "--commit", "{{ .input.sha }}", "--json", "status,conclusion,url"]
+          until: "all($.[*].status, . == 'completed')"
+          every: 30s
+        - kind: webhook
+          endpoint: "127.0.0.1:7717/hooks/github"
+          match: "$.payload.head_sha == $.input.sha"
+      timeout: 3h
+      onTimeout: escalate
+    output:
+      conclusion: "string!"

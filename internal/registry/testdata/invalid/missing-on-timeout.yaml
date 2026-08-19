@@ -1,0 +1,16 @@
+name: bad-missing-ontimeout
+
+nodes:
+  - id: n1
+    actor: claude
+    output:
+      x: "string!"
+
+  - id: approve
+    actor: human
+    output:
+      decision: "string!"
+    wait:
+      on:
+        - kind: human
+      timeout: 72h

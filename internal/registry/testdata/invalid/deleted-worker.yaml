@@ -1,0 +1,9 @@
+name: bad-worker
+worker:
+  runtime: docker
+
+nodes:
+  - id: n1
+    actor: claude
+    output:
+      x: "string!"

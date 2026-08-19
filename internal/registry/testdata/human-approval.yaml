@@ -1,0 +1,21 @@
+name: human-approval-demo
+
+nodes:
+  - id: integration
+    actor: claude
+    output:
+      summary: "string!"
+
+  - id: approve
+    actor: human
+    workspace: none
+    inputs:
+      summary: "$.outputs.integration.summary"
+    output:
+      decision: "string!"
+      reason: "string"
+    wait:
+      "on":
+        - kind: human
+      timeout: 72h
+      onTimeout: park

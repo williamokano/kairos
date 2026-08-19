@@ -1,0 +1,9 @@
+name: bad-network
+
+nodes:
+  - id: n1
+    actor: claude
+    network:
+      egress: { allow: ["api.anthropic.com"] }
+    output:
+      x: "string!"
