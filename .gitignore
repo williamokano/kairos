@@ -1,0 +1,6 @@
+/kairos
+/dist/
+*.test
+*.out
+.idea/
+.vscode/

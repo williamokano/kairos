@@ -1,0 +1,46 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  build-vet-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.25", cache: true }
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./... -race
+
+  arch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.25", cache: true }
+      - run: make arch
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.25", cache: true }
+      - uses: golangci/golangci-lint-action@v6
+        with: { version: latest }
+
+  cross-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [darwin, linux]
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.25", cache: true }
+      - env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: go build -o /dev/null ./cmd/kairos
