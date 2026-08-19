@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["RunID", "NodeID", "ExecID", "Passed"],
+  "properties": {
+    "RunID": { "type": "string", "minLength": 1 },
+    "NodeID": { "type": "string", "minLength": 1 },
+    "ExecID": { "type": "string", "minLength": 1 },
+    "Passed": { "type": "boolean" },
+    "Findings": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["ID", "Message", "Severity"],
+        "properties": {
+          "ID": { "type": "string" },
+          "Message": { "type": "string" },
+          "Severity": { "type": "string" }
+        }
+      }
+    }
+  }
+}

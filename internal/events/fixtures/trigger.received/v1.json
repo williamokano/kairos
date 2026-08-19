@@ -1,0 +1,8 @@
+{
+  "RunID": "run_01J8QK",
+  "TriggerRef": "cli:kairos-do",
+  "DefinitionRef": "fix-issue",
+  "Params": {"issue": 421},
+  "ParentRunID": null,
+  "CorrelationID": "corr_01J8QK"
+}

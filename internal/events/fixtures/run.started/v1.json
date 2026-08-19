@@ -1,0 +1,12 @@
+{
+  "RunID": "run_01J8QK",
+  "Graph": {
+    "Entry": "n1",
+    "Nodes": [
+      { "ID": "n1", "Wait": null, "Retry": { "MaxAttempts": 2 }, "LoopGuard": { "MaxIterationsPerNode": 3 } }
+    ],
+    "Edges": {
+      "n1": { "success": "$succeed", "failure": "$fail", "timeout": "$fail" }
+    }
+  }
+}

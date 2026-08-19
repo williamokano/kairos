@@ -1,0 +1,7 @@
+{
+  "RunID": "run_01J8QK",
+  "NodeID": "approve",
+  "ExecID": "approve#a1.i1",
+  "Output": {"decision": "approve", "reason": "looks good"},
+  "SchemaValid": true
+}

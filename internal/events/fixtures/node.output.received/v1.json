@@ -1,0 +1,7 @@
+{
+  "RunID": "run_01J8QK",
+  "NodeID": "n1",
+  "ExecID": "n1#a1.i1",
+  "SchemaValid": true,
+  "Output": {"branch": "kairos/run_01J8QK", "sha": "abc123", "summary": "fixed the retry backoff"}
+}

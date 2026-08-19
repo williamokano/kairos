@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["RunID", "TriggerRef", "DefinitionRef", "CorrelationID"],
+  "properties": {
+    "RunID": { "type": "string", "minLength": 1 },
+    "TriggerRef": { "type": "string", "minLength": 1 },
+    "DefinitionRef": { "type": "string", "minLength": 1 },
+    "Params": {},
+    "ParentRunID": { "type": ["string", "null"] },
+    "CorrelationID": { "type": "string", "minLength": 1 }
+  }
+}
