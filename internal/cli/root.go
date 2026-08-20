@@ -124,6 +124,9 @@ func newRootCmd(app *appCtx) *cobra.Command {
 	root.AddCommand(newDBCmd(app))
 	root.AddCommand(newStatusCmd(app))
 	root.AddCommand(newCheckOutputCmd())
+	root.AddCommand(newPauseCmd(app))
+	root.AddCommand(newResumeCmd(app))
+	root.AddCommand(newParkCmd(app))
 	root.AddCommand(newSrcCmd(app))
 	return root
 }

@@ -157,6 +157,8 @@ type StatusResponse struct {
 	DaemonPID  int    `json:"daemonPid"`
 	Uptime     string `json:"uptime"`
 	ActiveRuns int    `json:"activeRuns"`
+	Paused     bool   `json:"paused"`
+	InFlight   int    `json:"inFlight"`
 }
 
 func (c *Client) Status(ctx context.Context) (StatusResponse, error) {
@@ -194,6 +196,34 @@ func (c *Client) DBVerify(ctx context.Context) (DBVerifyResponse, error) {
 
 func (c *Client) DBRebuild(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, "/db/rebuild", nil, nil)
+}
+
+func (c *Client) DBBackup(ctx context.Context, path string) error {
+	return c.do(ctx, http.MethodPost, "/db/backup", map[string]string{"path": path}, nil)
+}
+
+func (c *Client) Pause(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "/pause", nil, nil)
+}
+
+func (c *Client) Resume(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "/resume", nil, nil)
+}
+
+// SelfCheckReport mirrors internal/engine.SelfCheckReport's wire shape —
+// hand-mirrored, not imported, matching this file's existing convention
+// (see ConversationMessage's doc comment).
+type SelfCheckReport struct {
+	DBClean                 bool     `json:"DBClean"`
+	MismatchedRunIDs        []string `json:"MismatchedRunIDs"`
+	UnverifiableExecutions  []string `json:"UnverifiableExecutions"`
+	OrphanWorkspacesRemoved []string `json:"OrphanWorkspacesRemoved"`
+}
+
+func (c *Client) SelfCheck(ctx context.Context) (SelfCheckReport, error) {
+	var out SelfCheckReport
+	err := c.do(ctx, http.MethodPost, "/selfcheck", nil, &out)
+	return out, err
 }
 
 // ConversationMessage mirrors internal/domain.ConversationMessageAppended

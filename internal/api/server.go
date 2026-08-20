@@ -53,7 +53,9 @@ func NewMux(deps Deps) *http.ServeMux {
 	registerStatusRoute(mux, deps)
 	registerDoctorRoute(mux, deps)
 	registerDBRoutes(mux, deps)
+	registerBackupRoute(mux, deps)
 	registerSourceRoutes(mux, deps)
+	registerLifecycleRoutes(mux, deps)
 	return mux
 }
 

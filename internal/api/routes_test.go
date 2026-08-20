@@ -32,7 +32,8 @@ func (nopStore) Subscribe(context.Context) (<-chan events.Envelope, func()) {
 func (nopStore) Verify(context.Context) (eventstore.VerifyReport, error) {
 	return eventstore.VerifyReport{}, nil
 }
-func (nopStore) Rebuild(context.Context) error { return nil }
+func (nopStore) Rebuild(context.Context) error        { return nil }
+func (nopStore) Backup(context.Context, string) error { return nil }
 func (nopStore) ListRuns(context.Context, *domain.RunStatus) ([]eventstore.RunSummary, error) {
 	return nil, nil
 }

@@ -34,4 +34,9 @@ var Ops = []Op{
 	{Method: "GET", Path: "/sources", CLIVerb: "src ls"},
 	{Method: "POST", Path: "/sources/{id}/pause", CLIVerb: "src pause"},
 	{Method: "POST", Path: "/sources/{id}/resume", CLIVerb: "src resume"},
+	{Method: "POST", Path: "/pause", CLIVerb: "pause"},
+	{Method: "POST", Path: "/pause", CLIVerb: "park"},
+	{Method: "POST", Path: "/resume", CLIVerb: "resume"},
+	{Method: "POST", Path: "/selfcheck", CLIVerb: "doctor"},
+	{Method: "POST", Path: "/db/backup", CLIVerb: "db backup"},
 }

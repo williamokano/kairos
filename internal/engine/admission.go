@@ -109,6 +109,17 @@ func (e *Engine) releaseAndDrain(ctx context.Context, execID string) {
 func (e *Engine) admitOrQueue(definitionRef string, c domain.CmdStartNode, req admission.Request) admission.Decision {
 	e.drainMu.Lock()
 	defer e.drainMu.Unlock()
+	if e.paused.Load() {
+		// L19's park mode: never even ask admission while paused — queue
+		// unconditionally, exactly like a real Queued verdict, so Resume's
+		// drain (which DOES call TryAdmit) is the only place real pool
+		// state is consulted. A currently-Executing node is untouched:
+		// pausing only stops new dispatch, it never interrupts.
+		e.pendingMu.Lock()
+		e.pending = append(e.pending, pendingStart{definitionRef: definitionRef, cmd: c})
+		e.pendingMu.Unlock()
+		return admission.Decision{Outcome: admission.Queued}
+	}
 	decision := e.admit.TryAdmit(req)
 	if decision.Outcome == admission.Queued {
 		e.pendingMu.Lock()

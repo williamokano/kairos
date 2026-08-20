@@ -94,6 +94,13 @@ type Store interface {
 	// Rebuild forces every registered projection to Reset and replay,
 	// regardless of its recorded version.
 	Rebuild(ctx context.Context) error
+	// Backup writes an atomic, hot, consistent snapshot of the whole
+	// database to destPath via `VACUUM INTO` (06-durability.md: "this
+	// command must exist so nobody invents their own" — copying a live
+	// .db file and losing its -wal is the number-one way people lose
+	// SQLite data). destPath's parent directory must already exist;
+	// VACUUM INTO refuses to overwrite an existing file at destPath.
+	Backup(ctx context.Context, destPath string) error
 	// ListRuns reads the run_index projection, optionally filtered by
 	// status. Backs `kairos ls`.
 	ListRuns(ctx context.Context, status *domain.RunStatus) ([]RunSummary, error)
@@ -223,6 +230,17 @@ func Open(ctx context.Context, cfg Config) (Store, error) {
 	go s.writeLoop(writerCtx)
 
 	return s, nil
+}
+
+// Backup runs `VACUUM INTO ?` on the reader connection — VACUUM INTO
+// takes its own read lock internally and does not block or wait on the
+// single-writer goroutine, so this never touches s.reqs.
+func (s *store) Backup(ctx context.Context, destPath string) error {
+	_, err := s.readerDB.ExecContext(ctx, `VACUUM INTO ?`, destPath)
+	if err != nil {
+		return fmt.Errorf("backing up to %s: %w", destPath, err)
+	}
+	return nil
 }
 
 func (s *store) Close() error {

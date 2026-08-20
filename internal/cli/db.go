@@ -39,6 +39,24 @@ func newDBCmd(app *appCtx) *cobra.Command {
 		},
 	})
 	root.AddCommand(&cobra.Command{
+		Use:   "backup <path>",
+		Short: "atomic, hot backup via VACUUM INTO — never copy kairos.db directly, you will lose the -wal",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := ensureClient(cmd, app)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := withTimeout(cmd)
+			defer cancel()
+			if err := client.DBBackup(ctx, args[0]); err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), "ok")
+			return err
+		},
+	})
+	root.AddCommand(&cobra.Command{
 		Use:   "reindex",
 		Short: "force every projection to rebuild",
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/williamokano/kairos/internal/admission"
@@ -150,6 +151,15 @@ type Engine struct {
 	// a different goroutine than the shard that granted them.
 	claimsMu sync.Mutex
 	claims   map[string]admission.Claims // execID -> claims held for it
+
+	// paused is L19's "close the lid" flag (see pause.go): when set, every
+	// new CmdStartNode is queued (admitOrQueue's own check) rather than
+	// admitted, so a run in flight finishes its current node and holds at
+	// the next boundary instead of continuing to run to completion or
+	// being interrupted mid-node (Stop's behaviour). Distinct from
+	// admission's own draining flag, which Stop sets to refuse admission
+	// entirely during shutdown — paused refuses to even ASK.
+	paused atomic.Bool
 
 	shards []*shard
 
