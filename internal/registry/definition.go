@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -27,6 +28,13 @@ type NodeDef struct {
 
 	Inputs       map[string]InputRef
 	OutputSchema *jsonschema.Schema // always compiled and non-nil after Load
+	// OutputSchemaRaw is the same schema as OutputSchema, undecoded — an
+	// llm actor's $KAIROS_SCHEMA file is this written verbatim, and
+	// `kairos check-output` validates against a file, not an in-memory
+	// *jsonschema.Schema, so the raw document has to survive alongside
+	// the compiled one (L08; a *jsonschema.Schema doesn't marshal back to
+	// its source document).
+	OutputSchemaRaw json.RawMessage
 
 	Context        []string
 	Workspace      WorkspaceMode

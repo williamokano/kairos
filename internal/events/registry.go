@@ -198,6 +198,14 @@ func derefEvent(ev domain.Event) domain.Event {
 		return *e
 	case *domain.ProcessOrphanReaped:
 		return *e
+	case *domain.LLMSessionStarted:
+		return *e
+	case *domain.SessionResumeFailed:
+		return *e
+	case *domain.SessionCostUnavailable:
+		return *e
+	case *domain.OutputRepairAttempted:
+		return *e
 	default:
 		return ev
 	}

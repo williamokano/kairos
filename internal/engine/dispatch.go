@@ -66,18 +66,32 @@ func (e *Engine) dispatchStartNode(ctx context.Context, definitionRef string, c 
 		return fmt.Errorf("node %q not found in definition %s", c.NodeID, definitionRef)
 	}
 
-	switch nd.Actor {
+	// retry.mutate resolves per-attempt: 04-agents.md's escalation ladder
+	// ("attempt 2 on a stronger model, attempt 3 on a different CLI")
+	// swaps which actor this specific attempt uses. domain.Advance never
+	// reads Mutate (confirmed: CmdStartNode carries only NodeID/Attempt,
+	// no actor field) — this resolution is purely an engine-level
+	// dispatch-time concern, applied here rather than duplicating a
+	// second retry system.
+	actor := nd.Actor
+	for _, m := range nd.Retry.Mutate {
+		if m.Attempt == c.Attempt && m.Actor != "" {
+			actor = m.Actor
+		}
+	}
+
+	switch actor {
 	case "rule":
 		return e.dispatchRuleActor(ctx, c)
 	case "shell":
 		return e.dispatchShellActor(ctx, nd, c)
+	case "claude", "codex", "gemini", "local":
+		return e.dispatchLLMActor(ctx, nd, c, actor)
 	default:
-		// llm/claude/codex/gemini/human/builtin.* actors are out of L05's
-		// scope (L08's actor SDK) — the milestone workflow never names
-		// one, but a future workflow might; fail the node honestly
-		// rather than hanging forever.
+		// human/builtin.* actors are out of L08's scope too — the engine
+		// fails the node honestly rather than hanging forever.
 		return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure,
-			fmt.Sprintf("actor %q is not implemented (requires L08's actor SDK)", nd.Actor))
+			fmt.Sprintf("actor %q is not implemented", actor))
 	}
 }
 

@@ -26,6 +26,12 @@ type ExecSpec struct {
 	WorkDir               string
 	Env                   []string
 	Argv                  []string
+	// Stdin, when non-nil, is written to the child's stdin and closed —
+	// an llm actor's prompt goes here, never argv (04-agents.md: argv is
+	// visible in `ps` to every process on the machine, and prompts
+	// routinely contain issue bodies and file excerpts). nil means no
+	// stdin, unchanged from every actor kind before L08.
+	Stdin []byte
 }
 
 // Started is what Start returns once the child is confirmed running.

@@ -1,6 +1,7 @@
 package local
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -105,6 +106,9 @@ func (l *Local) Start(ctx context.Context, spec ExecSpec) (Started, error) {
 	cmd.Env = append(append([]string{}, spec.Env...), "KAIROS_NONCE="+nonce)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	if spec.Stdin != nil {
+		cmd.Stdin = bytes.NewReader(spec.Stdin)
+	}
 	// Setpgid detaches the child from the daemon's controlling terminal
 	// and process group: Ctrl-C in your terminal does not reach it, and
 	// the daemon decides its fate, recording the decision first

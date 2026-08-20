@@ -46,6 +46,13 @@ var builtins = []builtinEvent{
 	{"engine.stopped", 1, func() domain.Event { return &domain.EngineStopped{} }},
 	{"engine.reconciled", 1, func() domain.Event { return &domain.EngineReconciled{} }},
 	{"process.orphan.reaped", 1, func() domain.Event { return &domain.ProcessOrphanReaped{} }},
+	// L08-introduced, run-scoped actor-invocation facts (event.go's doc
+	// comments): unlike the four above, these DO have a RunID and ARE
+	// folded through domain.Advance, as no-op audit transitions.
+	{"llm.session.started", 1, func() domain.Event { return &domain.LLMSessionStarted{} }},
+	{"session.resume.failed", 1, func() domain.Event { return &domain.SessionResumeFailed{} }},
+	{"session.cost.unavailable", 1, func() domain.Event { return &domain.SessionCostUnavailable{} }},
+	{"output.repair.attempted", 1, func() domain.Event { return &domain.OutputRepairAttempted{} }},
 }
 
 // Builtin returns a Registry with every domain.Event type L01 defined,

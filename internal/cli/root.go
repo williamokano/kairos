@@ -107,6 +107,7 @@ func newRootCmd(app *appCtx) *cobra.Command {
 	root.AddCommand(newDoctorCmd(app))
 	root.AddCommand(newDBCmd(app))
 	root.AddCommand(newStatusCmd(app))
+	root.AddCommand(newCheckOutputCmd())
 	return root
 }
 

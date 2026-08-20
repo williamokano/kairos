@@ -75,7 +75,37 @@ func (m *Manager) Provision(ctx context.Context, runID, sourceRepo string) (Work
 	if err := m.runGit(ctx, "", "clone", "--reference", mirrorPath, mirrorPath, dir); err != nil {
 		return Workspace{}, fmt.Errorf("provisioning workspace for run %s: %w", runID, err)
 	}
+	if err := m.applyCredentialGuard(ctx, dir); err != nil {
+		return Workspace{}, fmt.Errorf("applying credential guard for run %s: %w", runID, err)
+	}
 	return Workspace{RunID: runID, Dir: dir}, nil
+}
+
+// applyCredentialGuard is 04-agents.md's "capability, not permission"
+// design: the workspace's origin is the local mirror, never a real
+// remote, so `git push` from inside an actor's own workspace is a
+// reversible local no-op — and every credential-leak path a naive git
+// invocation might reach (a stored helper, a hook, an askpass prompt) is
+// closed too. Applied to every provisioned workspace, not just llm actors
+// — a shell actor with workspace: write gets the identical guard, since
+// this is a workspace-safety property, not an actor-kind concern.
+// "kairos then pushes mirror -> GitHub as a declared effect, in a
+// different process" is L12's job, not this one's.
+func (m *Manager) applyCredentialGuard(ctx context.Context, dir string) error {
+	settings := [][]string{
+		{"user.name", "Kairos"},
+		{"user.email", "kairos+agent@localhost"},
+		{"credential.helper", ""},
+		{"core.hooksPath", "/dev/null"},
+		{"core.askPass", "/usr/bin/false"},
+		{"remote.origin.pushurl", "kairos-blocked://denied"},
+	}
+	for _, kv := range settings {
+		if err := m.runGit(ctx, dir, "config", "--local", kv[0], kv[1]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Reprovision destroys and recreates runID's workspace from scratch — the

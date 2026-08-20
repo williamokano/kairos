@@ -84,11 +84,13 @@ func serve(parentCtx context.Context) error {
 	defer func() { _ = store.Close() }()
 
 	eng := engine.New(engine.Config{
-		Store:     store,
-		Executor:  local.New(local.DefaultBootIDProvider()),
-		BootID:    local.DefaultBootIDProvider(),
-		WorkRoot:  filepath.Join(cfg.Home, "work"),
-		KillGrace: 10 * time.Second,
+		Store:         store,
+		Executor:      local.New(local.DefaultBootIDProvider()),
+		BootID:        local.DefaultBootIDProvider(),
+		WorkRoot:      filepath.Join(cfg.Home, "work"),
+		WorkspaceRepo: cfg.WorkspaceRepo,
+		LLMBinary:     cfg.LLMBinary,
+		KillGrace:     10 * time.Second,
 	})
 
 	// Reconciliation must complete before the API starts serving —

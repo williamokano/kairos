@@ -3,7 +3,9 @@ package registry
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -34,6 +36,21 @@ func compileOutputShorthand(fields map[string]any) (*jsonschema.Schema, error) {
 		return nil, err
 	}
 	return compileSchemaDoc(doc)
+}
+
+// compileSchemaDocWithRaw compiles doc and also returns its marshalled
+// bytes — the form an llm actor's $KAIROS_SCHEMA file needs (L08), since a
+// *jsonschema.Schema doesn't marshal back to its source document.
+func compileSchemaDocWithRaw(doc map[string]any) (*jsonschema.Schema, json.RawMessage, error) {
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshalling schema doc: %w", err)
+	}
+	schema, err := compileSchemaDoc(doc)
+	if err != nil {
+		return nil, nil, err
+	}
+	return schema, raw, nil
 }
 
 // shorthandToSchemaDoc builds the raw {"type":"object", "properties":...,
@@ -125,10 +142,65 @@ func compileSchemaDoc(doc map[string]any) (*jsonschema.Schema, error) {
 	return schema, nil
 }
 
-// permissiveSchema is the schema a node whose actor kind doesn't require a
-// declared output (human, builtin.*) gets when it omits output/outputSchema
-// — see the "outputSchema required" refinement in
-// L03-definition-validator.md's Documented decisions.
-func permissiveSchema() (*jsonschema.Schema, error) {
-	return compileSchemaDoc(map[string]any{"type": "object"})
+// ValidateFile validates the JSON at outputPath against the JSON Schema at
+// schemaPath, returning the violations as "<json-pointer>: <message>"
+// lines — the exact shape 04-agents.md specifies `kairos check-output`
+// must print, capped at 20 with a count so an agent handed hundreds of
+// errors doesn't "rewrite the world". Both paths are files, not
+// in-memory structures, because this is the entry point both the CLI
+// subcommand and an actor's own in-loop self-check use, and neither has
+// a live *jsonschema.Schema to hand.
+func ValidateFile(outputPath, schemaPath string) (bool, []string, error) {
+	outputBytes, err := os.ReadFile(outputPath)
+	if err != nil {
+		return false, nil, fmt.Errorf("reading output file: %w", err)
+	}
+	decoded, err := jsonschema.UnmarshalJSON(bytes.NewReader(outputBytes))
+	if err != nil {
+		return false, []string{fmt.Sprintf("/: invalid JSON: %s", err)}, nil
+	}
+
+	schemaBytes, err := os.ReadFile(schemaPath)
+	if err != nil {
+		return false, nil, fmt.Errorf("reading schema file: %w", err)
+	}
+	schemaDecoded, err := jsonschema.UnmarshalJSON(bytes.NewReader(schemaBytes))
+	if err != nil {
+		return false, nil, fmt.Errorf("decoding schema file: %w", err)
+	}
+	c := jsonschema.NewCompiler()
+	const url = "mem://check-output/schema.json"
+	if err := c.AddResource(url, schemaDecoded); err != nil {
+		return false, nil, fmt.Errorf("adding schema resource: %w", err)
+	}
+	schema, err := c.Compile(url)
+	if err != nil {
+		return false, nil, fmt.Errorf("compiling schema: %w", err)
+	}
+
+	verr := schema.Validate(decoded)
+	if verr == nil {
+		return true, nil, nil
+	}
+	var validationErr *jsonschema.ValidationError
+	if !errors.As(verr, &validationErr) {
+		return false, []string{verr.Error()}, nil
+	}
+
+	var lines []string
+	for _, u := range validationErr.BasicOutput().Errors {
+		if u.Error == nil {
+			continue
+		}
+		ptr := u.InstanceLocation
+		if ptr == "" {
+			ptr = "/"
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s", ptr, u.Error.String()))
+	}
+	const cap20 = 20
+	if len(lines) > cap20 {
+		lines = append(lines[:cap20], fmt.Sprintf("... %d more", len(lines)-cap20))
+	}
+	return false, lines, nil
 }

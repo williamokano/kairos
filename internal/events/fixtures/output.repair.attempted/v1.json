@@ -1,0 +1,6 @@
+{
+  "RunID": "run_01J8QK",
+  "NodeID": "n1",
+  "ExecID": "n1#a1.i1",
+  "Errors": ["/tasks/0/criteria: expected array, got string"]
+}

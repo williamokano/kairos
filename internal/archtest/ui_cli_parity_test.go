@@ -54,8 +54,11 @@ func collectLeaves(cmd *cobra.Command, prefix string) []string {
 
 // exemptCLIVerbs are leaf commands with no corresponding apispec.Op:
 // version (pre-dates the daemon, no route) and serve (daemon lifecycle,
-// not itself a route call — it's what BINDS the routes).
-var exemptCLIVerbs = map[string]bool{"version": true, "serve": true}
+// not itself a route call — it's what BINDS the routes). check-output
+// (L08) is a local file-validation tool an actor process runs inside its
+// own workspace — it never talks to the daemon at all, so there is no
+// route for it to map to.
+var exemptCLIVerbs = map[string]bool{"version": true, "serve": true, "check-output": true}
 
 // TestUI_everyCallHasCLICounterpart (AGENTS.md §9) is real from L04:
 // every apispec.Op maps to a CLI verb that reaches it, and every non-exempt

@@ -17,6 +17,15 @@ import (
 type Config struct {
 	// Home is $KAIROS_HOME, default ~/.kairos, respecting $XDG_STATE_HOME.
 	Home string
+	// WorkspaceRepo is the git repository workspace: write nodes clone
+	// from (engine.Config.WorkspaceRepo, L06). Empty means no write-mode
+	// node can run. One daemon-wide repo, not per-run selection — see
+	// L06-workspaces.md's Future work.
+	WorkspaceRepo string
+	// LLMBinary is the CLI binary claude/codex/gemini/local-kind actor
+	// nodes invoke (engine.Config.LLMBinary, L08). Empty means no
+	// llm-kind node can run.
+	LLMBinary string
 }
 
 // Load resolves $KAIROS_HOME (env override, then $XDG_STATE_HOME, then
@@ -43,5 +52,9 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("creating kairos home %s: %w", home, err)
 	}
 
-	return Config{Home: home}, nil
+	return Config{
+		Home:          home,
+		WorkspaceRepo: v.GetString("WORKSPACE_REPO"),
+		LLMBinary:     v.GetString("LLM_BINARY"),
+	}, nil
 }

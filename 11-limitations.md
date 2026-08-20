@@ -322,6 +322,47 @@ to `RunRejected`, rather than leaving it silently stuck forever.
 *Detection:* `kairos db verify`'s replay-and-diff will surface such a run as folding to `RunPending`
 forever; a future health check could flag `TriggerReceived`-only streams older than a threshold directly.
 
+**NL-28 · No stream-json parsing: only an llm actor's final `output.json` is ever read.**
+L08 reads a CLI's result file once, after it exits — never its incremental `stream-json` output. Every
+mechanism 04-agents.md builds on that stream is therefore absent: pre-emptive cost enforcement (needs a
+per-turn running total), turn-idle timeout (needs a byte from either stream to reset), and compaction
+detection/re-injection.
+*Blast radius:* a wedged agent producing no output is only caught by the node-level timeout — which
+itself has no real timer wheel yet (L05's decision #6) — not by 04-agents.md's four independent
+backstops. `limits.maxCostUSD` in a workflow's YAML is parsed but enforces nothing for an llm-actor node.
+*Mitigations:* the node timeout will exist once a real timer wheel does (Future work, both L05 and L08);
+stream parsing itself (**none**).
+*Detection:* none automatic; a hung llm-actor node currently only surfaces as a `NodeExecution` stuck
+`Executing` past its author-declared `timeout:`, once that timeout is actually enforced.
+
+**NL-29 · One configured LLM binary, no per-CLI flag probing or sandboxing.**
+`engine.Config.LLMBinary` is a single binary for every actor kind (`claude`/`codex`/`gemini`/`local`
+all resolve to the identical invocation shape: the binary, prompt on stdin, `KAIROS_OUTPUT`/
+`KAIROS_SCHEMA` env vars). 04-agents.md's real per-CLI command shapes — Claude's `--session-id`/
+`--resume`/`--permission-mode`/`--disallowedTools`, Codex's `--sandbox workspace-write` — are not
+implemented, and flags are never probed via `<cli> --version`/`--help`.
+*Blast radius:* none of Codex's OS-level sandbox enforcement (Seatbelt/Landlock) or Claude's
+`--disallowedTools`/`--strict-mcp-config` guardrails are active for any actor this document drives.
+The workspace's credential guard (this document's own addition — blocked push URL, no credential
+helper) is the only real containment in place; 01-architecture.md's "the host is the sandbox, and there
+isn't one" applies in full.
+*Mitigations:* the credential guard (**shipped**, `internal/workspace`'s `applyCredentialGuard`,
+`TestManager_provisionAppliesTheCredentialGuard`); real per-CLI flag probing and sandbox flags
+(**none**).
+*Detection:* `kairos doctor` could report which CLI a configured `LLMBinary` resolves to and whether it
+supports a sandbox flag; not implemented.
+
+**NL-30 · Cost accounting is always "unknown" for llm-actor nodes.**
+04-agents.md's three-tier cost fallback (CLI-reported total → price table × tokens → unknown) collapses
+to its third tier unconditionally, since NL-28 means no stream is ever parsed for a reported total or
+token count. Every llm-actor invocation emits `session.cost.unavailable`.
+*Blast radius:* no budget enforcement is possible; a workflow's `limits.maxCostUSD` and a node's
+`resources.model.maxCostUSD` are both parsed and validated but have no enforcing code path here.
+*Mitigations:* honest reporting via `session.cost.unavailable` rather than a fabricated number
+(**shipped** — AGENTS §4 rule 1: "a made-up number in a budget check is worse than a missing one");
+real cost parsing (**none**).
+*Detection:* `session.cost.unavailable` in a run's event stream, once per llm-actor execution.
+
 **NL-13 · The audit log is not tamper-proof.**
 The agent can write `~/.kairos/kairos.db` unless G6–G9 are enabled.
 *Mitigations:* `guardrails-untouched` covers `~/.kairos/**` in the diff gate (**shipped**), refusing to

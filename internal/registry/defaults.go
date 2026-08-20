@@ -284,27 +284,38 @@ func defaultWait(nd *NodeDef, rn raw) error {
 
 func defaultOutputSchema(nd *NodeDef, rn raw) error {
 	if outAny, ok := rn["output"].(map[string]any); ok && len(outAny) > 0 {
-		schema, err := compileOutputShorthand(outAny)
+		doc, err := shorthandToSchemaDoc(outAny)
+		if err != nil {
+			return fmt.Errorf("output: %w", err)
+		}
+		schema, raw, err := compileSchemaDocWithRaw(doc)
 		if err != nil {
 			return fmt.Errorf("output: %w", err)
 		}
 		nd.OutputSchema = schema
+		nd.OutputSchemaRaw = raw
 		return nil
 	}
 	if schemaAny, ok := rn["outputSchema"].(map[string]any); ok && len(schemaAny) > 0 {
-		schema, err := compileSchemaDoc(schemaAny)
+		schema, raw, err := compileSchemaDocWithRaw(schemaAny)
 		if err != nil {
 			return fmt.Errorf("outputSchema: %w", err)
 		}
 		nd.OutputSchema = schema
+		nd.OutputSchemaRaw = raw
 		return nil
 	}
 	if !requiresOutputSchema(nd.Actor) {
-		schema, err := permissiveSchema()
+		// The permissive default schema a node whose actor kind doesn't
+		// require a declared output (human, builtin.*) gets when it omits
+		// output/outputSchema — see the "outputSchema required" refinement
+		// in L03-definition-validator.md's Documented decisions.
+		schema, raw, err := compileSchemaDocWithRaw(map[string]any{"type": "object"})
 		if err != nil {
 			return err
 		}
 		nd.OutputSchema = schema
+		nd.OutputSchemaRaw = raw
 	}
 	return nil
 }

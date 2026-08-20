@@ -180,3 +180,49 @@ func TestManager_provisionRefusesASourceInsideKairosOwnStateDir(t *testing.T) {
 		t.Fatal("expected Provision to refuse a source inside kairos's own state directory")
 	}
 }
+
+// TestManager_provisionAppliesTheCredentialGuard proves 04-agents.md's
+// "capability, not permission" design is actually in place before any
+// actor ever runs inside the workspace: origin's pushurl is blocked, and
+// the credential helper/hooks/askpass paths that could otherwise leak an
+// ambient credential are all disabled.
+func TestManager_provisionAppliesTheCredentialGuard(t *testing.T) {
+	repo := newTestRepo(t)
+	mgr, _ := newManager(t)
+	ctx := context.Background()
+
+	ws, err := mgr.Provision(ctx, "run1", repo)
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+
+	cases := map[string]string{
+		"credential.helper":     "",
+		"core.hooksPath":        "/dev/null",
+		"core.askPass":          "/usr/bin/false",
+		"remote.origin.pushurl": "kairos-blocked://denied",
+	}
+	for key, want := range cases {
+		cmd := exec.Command("git", "config", "--local", "--get", key)
+		cmd.Dir = ws.Dir
+		out, err := cmd.Output()
+		got := string(bytes.TrimSpace(out))
+		if key == "credential.helper" {
+			// An empty value entry ("[credential] helper =") makes
+			// `git config --get` exit 1 (a set-but-empty value doesn't
+			// count as "found" for --get) — the file having the key at
+			// all is the guard; assert via --get-all's exit code instead.
+			if err != nil {
+				t.Errorf("credential.helper: git config --get failed: %v (want the key present, even if empty)", err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: git config --get failed: %v", key, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+}

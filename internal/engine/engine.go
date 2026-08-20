@@ -37,6 +37,11 @@ type Config struct {
 	// from the trigger's invocation cwd, is Future work (see
 	// L06-workspaces.md) — this document scopes to one daemon-wide repo.
 	WorkspaceRepo string
+	// LLMBinary is the CLI binary an llm-kind actor (claude/codex/gemini/
+	// local) invokes — configured, never assumed installed (L08). Empty
+	// means no llm-kind node can run; dispatchLLMActor fails that node
+	// loudly rather than silently falling back to anything.
+	LLMBinary string
 	// KillGrace is the SIGTERM-to-SIGKILL grace period for CmdSignalNode.
 	KillGrace time.Duration
 	// NumShards is how many goroutines partition run processing by
@@ -53,6 +58,7 @@ type Engine struct {
 	workRoot      string
 	workspaceRepo string
 	workspaces    *workspace.Manager
+	llmBinary     string
 	killGrace     time.Duration
 	numShards     int
 	log           *slog.Logger
@@ -85,6 +91,7 @@ func New(cfg Config) *Engine {
 		workRoot:      cfg.WorkRoot,
 		workspaceRepo: cfg.WorkspaceRepo,
 		workspaces:    workspace.New(mirrorRoot, cfg.WorkRoot, cfg.Executor),
+		llmBinary:     cfg.LLMBinary,
 		killGrace:     cfg.KillGrace,
 		numShards:     cfg.NumShards,
 		log:           cfg.Logger,

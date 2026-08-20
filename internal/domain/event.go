@@ -199,6 +199,65 @@ type HumanTaskAnswered struct {
 func (HumanTaskAnswered) EventType() string { return "human.task.answered" }
 func (HumanTaskAnswered) isEvent()          {}
 
+// LLMSessionStarted records a Kairos Session's identity — our own ULID,
+// never the CLI's native session id (04-agents.md: "two concepts, never
+// conflated"). Recorded before the actor process starts, exactly like
+// NodeExecutionStarted precedes the process it names, so a Kairos Session
+// is always traceable even if the process never produces output.
+type LLMSessionStarted struct {
+	RunID, NodeID, ExecID string
+	SessionID             string
+	// Resumed is true when this session reused a prior attempt's
+	// conversation (native resume) rather than starting fresh.
+	Resumed bool
+	// Dir is this session's working directory — recorded so a later
+	// attempt can detect 04-agents.md's "path-keying trap": the CLI's own
+	// session store is keyed by cwd, so if Dir no longer exists a resume
+	// would silently find nothing. Recorded now, checked before the next
+	// attempt ever tries to resume.
+	Dir string
+}
+
+func (LLMSessionStarted) EventType() string { return "llm.session.started" }
+func (LLMSessionStarted) isEvent()          {}
+
+// SessionResumeFailed records the path-keying trap 04-agents.md names
+// explicitly: a resume was going to be attempted but the recorded resume
+// directory no longer exists, so resuming would silently find nothing.
+// Recorded instead of attempting it, and the engine falls back to a fresh
+// session rather than guessing.
+type SessionResumeFailed struct {
+	RunID, NodeID, ExecID string
+	PriorSessionID        string
+}
+
+func (SessionResumeFailed) EventType() string { return "session.resume.failed" }
+func (SessionResumeFailed) isEvent()          {}
+
+// SessionCostUnavailable records 04-agents.md's third cost-accounting
+// tier: the actor reported no usable cost figure, so cost is recorded as
+// 0 rather than estimated — "a made-up number in a budget check is worse
+// than a missing one."
+type SessionCostUnavailable struct {
+	RunID, NodeID, ExecID string
+}
+
+func (SessionCostUnavailable) EventType() string { return "session.cost.unavailable" }
+func (SessionCostUnavailable) isEvent()          {}
+
+// OutputRepairAttempted records 04-agents.md's Stage 2 repair turn: the
+// actor's first output failed schema validation, so the validation errors
+// were fed back in the same session for one bounded repair attempt.
+// Recorded regardless of whether the repair succeeded — the eventual
+// NodeOutputReceived carries that outcome.
+type OutputRepairAttempted struct {
+	RunID, NodeID, ExecID string
+	Errors                []string
+}
+
+func (OutputRepairAttempted) EventType() string { return "output.repair.attempted" }
+func (OutputRepairAttempted) isEvent()          {}
+
 // The four events below are additive, L05-introduced facts recorded to a
 // separate "system" stream, not any run's stream — they have no RunID and
 // Advance never folds them (RunState has no case for them; nothing calls
