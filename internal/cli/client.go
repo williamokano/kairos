@@ -234,3 +234,39 @@ func (c *Client) Ping(ctx context.Context) bool {
 	_, err := c.Status(ctx)
 	return err == nil
 }
+
+// Source mirrors internal/api's sourceResponse — backs `kairos src ls`.
+type Source struct {
+	ID              string `json:"id"`
+	Kind            string `json:"kind"`
+	Flow            string `json:"flow,omitempty"`
+	Project         string `json:"project,omitempty"`
+	IntervalSeconds int    `json:"intervalSeconds"`
+	Enabled         bool   `json:"enabled"`
+	Health          string `json:"health"`
+	HealthReason    string `json:"healthReason,omitempty"`
+}
+
+func (c *Client) AddSource(ctx context.Context, id, kind, config, flow, project string, intervalSeconds int) (Source, error) {
+	var out Source
+	err := c.do(ctx, http.MethodPost, "/sources", map[string]any{
+		"id": id, "kind": kind, "config": config, "flow": flow, "project": project, "intervalSeconds": intervalSeconds,
+	}, &out)
+	return out, err
+}
+
+func (c *Client) ListSources(ctx context.Context) ([]Source, error) {
+	var out struct {
+		Sources []Source `json:"sources"`
+	}
+	err := c.do(ctx, http.MethodGet, "/sources", nil, &out)
+	return out.Sources, err
+}
+
+func (c *Client) PauseSource(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/sources/"+id+"/pause", nil, nil)
+}
+
+func (c *Client) ResumeSource(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/sources/"+id+"/resume", nil, nil)
+}

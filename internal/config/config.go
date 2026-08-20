@@ -74,6 +74,20 @@ type Config struct {
 	// applied to gh.pr.create (engine.Config.UnattendedEffectCeilings,
 	// L12). 0 means no cap.
 	MaxUnattendedPRs int
+	// TriggerMaxQueued is 08-triggers.md's "queued >= maxQueued (40) ->
+	// REJECT" for TRIGGER-created runs (tasksource.QueueLimits.MaxQueued,
+	// L16) — distinct from AdmissionMaxQueued's node-execution-slot
+	// concern, but sharing the same default per the doc's own "40" both
+	// places.
+	TriggerMaxQueued int
+	// TriggerMaxOpenDecisions is 08-triggers.md's "maxOpenDecisions: 5" —
+	// backpressure on wait:human node executions across the whole
+	// daemon.
+	TriggerMaxOpenDecisions int
+	// InboxEnabled turns on the `~/.kairos/inbox/*.md` watcher (L16).
+	// Defaults to true — the inbox is "the best local affordance in the
+	// design" per 08-triggers.md and costs nothing when empty.
+	InboxEnabled bool
 }
 
 // Load resolves $KAIROS_HOME (env override, then $XDG_STATE_HOME, then
@@ -122,6 +136,19 @@ func Load() (Config, error) {
 		policyPath = filepath.Join(home, "policy.yaml")
 	}
 
+	triggerMaxQueued := v.GetInt("TRIGGER_MAX_QUEUED")
+	if triggerMaxQueued == 0 {
+		triggerMaxQueued = 40
+	}
+	triggerMaxOpenDecisions := v.GetInt("TRIGGER_MAX_OPEN_DECISIONS")
+	if triggerMaxOpenDecisions == 0 {
+		triggerMaxOpenDecisions = 5
+	}
+	inboxEnabled := true
+	if s := os.Getenv("KAIROS_INBOX_ENABLED"); s != "" {
+		inboxEnabled = v.GetBool("INBOX_ENABLED")
+	}
+
 	return Config{
 		Home:                    home,
 		WorkspaceRepo:           v.GetString("WORKSPACE_REPO"),
@@ -135,6 +162,9 @@ func Load() (Config, error) {
 		UnattendedAck:           v.GetString("UNATTENDED_ACK"),
 		DryRun:                  v.GetBool("DRY_RUN"),
 		MaxUnattendedPRs:        v.GetInt("MAX_UNATTENDED_PRS"),
+		TriggerMaxQueued:        triggerMaxQueued,
+		TriggerMaxOpenDecisions: triggerMaxOpenDecisions,
+		InboxEnabled:            inboxEnabled,
 	}, nil
 }
 

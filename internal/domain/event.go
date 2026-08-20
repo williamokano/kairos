@@ -564,3 +564,18 @@ type ConversationMessageAppended struct {
 
 func (ConversationMessageAppended) EventType() string { return "conversation.message.appended" }
 func (ConversationMessageAppended) isEvent()          {}
+
+// SecretAccessed records one TaskSource plugin call that received a
+// declared secret as an environment variable (08-triggers.md: "the
+// engine refuses to start a plugin whose declared secrets are unset, and
+// records secret.accessed{plugin, secret, callID} per call"). System-
+// stream, never folded by Advance — a fact about the daemon's own
+// operation, not about any run.
+type SecretAccessed struct {
+	Plugin string
+	Secret string
+	CallID string
+}
+
+func (SecretAccessed) EventType() string { return "secret.accessed" }
+func (SecretAccessed) isEvent()          {}

@@ -544,6 +544,79 @@ NL-39's deliberate non-compensability.
 *Revisit:* if compensation failures prove common in practice, add a `compensation.failed` domain
 event (distinct from silent absence) and a manual `kairos effects compensate <run> <node>` retry verb.
 
+**NL-41 · No real `github`/`jira`/`linear` `TaskSource` providers ship compiled in.**
+`internal/tasksource.NewRegistry` registers only `"fake"` (a test double); 08-triggers.md names
+`github`, `jira`, `linear` as compiled-in builtins alongside `inbox`/`cron`/`repo-watch`/`git`/
+`shell`, but this document scoped to the polling/dedupe/admission *machinery* those providers would
+plug into, not the providers themselves — the doc's own bash `gh-issues` plugin example proves the
+same result is reachable today via a stdio NDJSON plugin instead.
+*Blast radius:* connecting a real GitHub/Jira/Linear source today requires writing (or fetching) an
+external plugin executable; there is no `kairos src add --kind github-issues` that works out of the
+box.
+*Mitigations:* the extension point is real and tested (**shipped** — `Registry.Register`, exercised
+by `NewRegistry`'s own `"fake"` entry); the three named providers themselves are **none**.
+*Detection:* `kairos src add --kind github-issues` fails with "unknown source kind" today.
+*Revisit:* whichever later document is scoped to shipping real connector implementations (adjacent
+to `14-connectors.md`'s own material).
+
+**NL-42 · Webhook-fed sources parse payloads via a direct Go callback, not a stream-mode plugin.**
+08-triggers.md frames a webhook-fed `TaskSource` as running in "stream mode" (the plugin process
+stays up, NDJSON both ways, correlated by `callID`) — `internal/tasksource.Plugin` implements only
+one-shot invocation (fresh process per call). `tasksource.WebhookConfig.Parse` is a same-process Go
+function today, real and tested, but not what a third-party webhook plugin would actually run.
+*Blast radius:* a third-party author cannot ship a stdio-NDJSON plugin that handles its own webhook
+payloads; webhook parsing is currently only extensible by editing `internal/tasksource` itself.
+*Mitigations:* none shipped for stream mode; the HMAC-verification and dedupe machinery around it is
+real regardless of how the payload gets parsed (**shipped**).
+*Detection:* none automatic — `plugin.go`'s doc comment names the gap.
+*Revisit:* when a real third-party webhook connector is needed badly enough to justify stream mode's
+added complexity (long-lived process supervision, health checks, restart policy) — deliberately not
+built speculatively per AGENTS §7.
+
+**NL-43 · `kairos src pause`/`resume` only take effect on the next daemon restart.**
+`tasksource.Manager.Start` reads every enabled source once via `ListSources` and launches one
+goroutine per source; it has no live "a source was added/paused/resumed" notification channel.
+Calling `kairos src pause <id>` correctly flips the `source.enabled` row (visible in `kairos src
+ls`), but an already-running poller goroutine for that source keeps polling until the daemon next
+restarts and re-reads the source table.
+*Blast radius:* `kairos src pause` before boarding a plane (08-triggers.md's own example) does not
+actually stop network calls until the next restart — it only stops a *future* boot from starting
+that source.
+*Mitigations:* none shipped; `SetSourceEnabled`'s row update is correct and durable (**shipped** for
+the state itself), but nothing reads it live.
+*Detection:* `kairos src ls` shows `enabled=false` while polling continues — a real, silent-feeling
+gap, registered rather than left for a user to discover.
+*Revisit:* add a `context.CancelFunc` registry inside `Manager` keyed by source id, and a
+watch-the-source-table loop (or an explicit API call from `pause`/`resume` straight into the running
+`Manager`) — a small, real addition once dynamic reconfiguration is actually needed.
+
+**NL-44 · `cron` sources support only `Daily`/`Weekly` schedules, not full cron(5) syntax.**
+`internal/tasksource.Schedule`'s two implementations cover 08-triggers.md's own examples exactly
+("nightly dependency updates, weekly flake sweeps") but not an arbitrary `"*/15 * * * *"`-style
+expression. AGENTS.md's approved-dependency table names no cron-parsing library, and adding one
+outside this document's scope would need its own ADR.
+*Blast radius:* a source needing an interval other than "once a day" or "once a week at a fixed
+time" (e.g. "every 15 minutes") cannot be expressed as `kind: cron` — a poller with a short
+`interval_s` is the closest substitute today.
+*Mitigations:* none shipped beyond the two schedules that exist.
+*Detection:* `Manager.startCron`'s `cronSourceConfig` silently accepts only `"daily"`/`"weekly"` in
+its `schedule` field; anything else falls back to `Daily` rather than erroring — a second, smaller
+gap worth flagging alongside the first (should be a publish-time validation error instead).
+*Revisit:* if a real cron-expression need arises, write the ADR a new dependency requires and extend
+`Schedule` with a third implementation — the interface already accommodates one.
+
+**NL-45 · `repo-watch` (08-triggers.md's fifth entry point) is not implemented.**
+"Watch the repo, and when a test starts failing, start a fix run" needs real integration with
+`internal/workspace` (to know what "the repo" is) and a test-running/gate-evaluation trigger this
+document did not build — it is genuinely new work, not a variant of the inbox/poller/cron mechanisms
+already shipped.
+*Blast radius:* the doc's own claim ("nothing in a fleet design has this, because a fleet has no
+idea what you just saved") is not yet true of this implementation.
+*Mitigations:* none shipped.
+*Detection:* `kairos src add --kind repo-watch` fails with "unknown source kind."
+*Revisit:* a dedicated follow-on document, once the local-workspace file-watching and gate-hook
+machinery it needs has a natural home.
+
 **NL-13 · The audit log is not tamper-proof.**
 The agent can write `~/.kairos/kairos.db` unless G6–G9 are enabled.
 *Mitigations:* `guardrails-untouched` covers `~/.kairos/**` in the diff gate (**shipped**), refusing to

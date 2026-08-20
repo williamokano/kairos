@@ -22,6 +22,7 @@ import (
 	"github.com/williamokano/kairos/internal/eventstore"
 	"github.com/williamokano/kairos/internal/executor/local"
 	"github.com/williamokano/kairos/internal/policy"
+	"github.com/williamokano/kairos/internal/tasksource"
 )
 
 // serve is the daemon boot sequence, injected into internal/cli as a
@@ -119,6 +120,24 @@ func serve(parentCtx context.Context) error {
 	if err := eng.Start(ctx); err != nil {
 		return fmt.Errorf("starting engine: %w", err)
 	}
+
+	// The trigger manager (L16: inbox, pollers, cron) starts after the
+	// engine's live loop, matching the same "engine is watching before
+	// anything can create a run" ordering every prior document has
+	// upheld — it never dispatches Cmds itself, it only calls
+	// tasksource.CreateRun, which the engine's Subscribe loop then picks
+	// up like any other run.
+	triggers := tasksource.NewManager(tasksource.ManagerConfig{
+		InboxDir:     filepath.Join(cfg.Home, "inbox"),
+		InboxEnabled: cfg.InboxEnabled,
+		Limits: tasksource.QueueLimits{
+			MaxQueued: cfg.TriggerMaxQueued, MaxOpenDecisions: cfg.TriggerMaxOpenDecisions,
+		},
+	}, store)
+	if err := triggers.Start(ctx); err != nil {
+		return fmt.Errorf("starting trigger sources: %w", err)
+	}
+	defer triggers.Stop()
 
 	deps := api.Deps{
 		Store:        store,

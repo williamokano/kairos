@@ -2,15 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
-	"path/filepath"
-	"time"
-
-	"github.com/oklog/ulid/v2"
 
 	"github.com/williamokano/kairos/internal/domain"
 	"github.com/williamokano/kairos/internal/eventstore"
-	"github.com/williamokano/kairos/internal/registry"
+	"github.com/williamokano/kairos/internal/tasksource"
 )
 
 func registerRunRoutes(mux *http.ServeMux, deps Deps) {
@@ -29,18 +26,17 @@ type createRunResponse struct {
 	Status string `json:"status"`
 }
 
-// handleCreateRun is decision #1 in L04-daemon-api-cli.md: it appends
-// TriggerReceived, then folds domain.Advance in-process ONCE to also
-// append RunStarted{Graph}. The resulting []Cmd is discarded — there is
-// no dispatch loop here, no Cmd execution, no process spawn. This is not
-// the engine (L05); it is the same single fold RunStateProjection already
-// performs inside AppendIf's own transaction, done once more synchronously
-// so DefinitionRef resolves to a Graph before anything needs it.
+// handleCreateRun calls tasksource.CreateRun — the one code path
+// L16-triggers.md establishes for every way a Run comes into existence,
+// `kairos run` included (TriggerRef "cli:kairos-run"). Originally
+// (L04-daemon-api-cli.md decision #1) this handler contained the
+// TriggerReceived/RunStarted append sequence directly; it now delegates
+// so internal/api and every trigger source in internal/tasksource share
+// exactly one implementation, not two that could drift.
 //
-// The two AppendIf calls are NOT one transaction: a daemon crash between
-// them leaves a run at TriggerReceived only. This is a registered,
-// documented interim gap (11-limitations.md) that L05's reconciliation
-// must recognise, not solved here.
+// A CLI-initiated run passes QueueLimits{} (unchecked) — 08-triggers.md's
+// maxQueued/maxOpenDecisions backpressure targets trigger-created
+// backlog, not a human typing a command right now.
 func handleCreateRun(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createRunRequest
@@ -52,57 +48,28 @@ func handleCreateRun(deps Deps) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "usage", "definitionPath is required")
 			return
 		}
-		absPath, err := filepath.Abs(req.DefinitionPath)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "usage", "resolving definitionPath: "+err.Error())
-			return
-		}
 
-		def, err := registry.Load(absPath)
-		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "validation_failed", err.Error())
-			return
-		}
-		graph, err := registry.ProjectGraph(def)
-		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "validation_failed", "projecting graph: "+err.Error())
-			return
-		}
-
-		runID := ulid.Make().String()
-		now := time.Now().UTC()
-		meta := eventstore.AppendMeta{Actor: "cli", CorrelationID: runID, OccurredAt: now}
-
-		trigger := domain.TriggerReceived{
-			RunID:         runID,
-			TriggerRef:    "cli:kairos-run",
-			DefinitionRef: absPath,
+		runID, status, err := tasksource.CreateRun(r.Context(), deps.Store, tasksource.CreateRunRequest{
+			DefinitionRef: req.DefinitionPath,
 			Params:        req.Params,
-			CorrelationID: runID,
-		}
-		if _, err := deps.Store.AppendIf(r.Context(), runID, 0, []domain.Event{trigger}, meta); err != nil {
-			writeError(w, http.StatusInternalServerError, "invariant_violation", "appending trigger.received: "+err.Error())
+			TriggerRef:    "cli:kairos-run",
+			Actor:         "cli",
+		}, tasksource.QueueLimits{})
+		if err != nil {
+			if errors.Is(err, tasksource.ErrQueueFull) || errors.Is(err, tasksource.ErrTooManyOpenDecisions) {
+				writeError(w, http.StatusTooManyRequests, "rejected", err.Error())
+				return
+			}
+			var verr *tasksource.ValidationError
+			if errors.As(err, &verr) {
+				writeError(w, http.StatusUnprocessableEntity, "validation_failed", err.Error())
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "invariant_violation", err.Error())
 			return
 		}
 
-		state, _, err := domain.Advance(domain.RunState{}, trigger, now)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "invariant_violation", "folding trigger.received: "+err.Error())
-			return
-		}
-		started := domain.RunStarted{RunID: runID, Graph: graph}
-		state, cmds, err := domain.Advance(state, started, now)
-		_ = cmds // no dispatch loop exists yet (L05); the fold is only to resolve the graph
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "invariant_violation", "folding run.started: "+err.Error())
-			return
-		}
-		if _, err := deps.Store.AppendIf(r.Context(), runID, 1, []domain.Event{started}, meta); err != nil {
-			writeError(w, http.StatusInternalServerError, "invariant_violation", "appending run.started: "+err.Error())
-			return
-		}
-
-		writeJSON(w, http.StatusCreated, createRunResponse{RunID: runID, Status: string(state.Status)})
+		writeJSON(w, http.StatusCreated, createRunResponse{RunID: runID, Status: string(status)})
 	}
 }
 

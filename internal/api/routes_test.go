@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/williamokano/kairos/internal/api"
 	"github.com/williamokano/kairos/internal/apispec"
@@ -38,7 +39,22 @@ func (nopStore) ListRuns(context.Context, *domain.RunStatus) ([]eventstore.RunSu
 func (nopStore) GetRunState(context.Context, string) (domain.RunState, bool, error) {
 	return domain.RunState{}, false, nil
 }
-func (nopStore) Close() error { return nil }
+func (nopStore) Close() error                                             { return nil }
+func (nopStore) UpsertSource(context.Context, eventstore.Source) error    { return nil }
+func (nopStore) ListSources(context.Context) ([]eventstore.Source, error) { return nil, nil }
+func (nopStore) GetSource(context.Context, string) (eventstore.Source, bool, error) {
+	return eventstore.Source{}, false, nil
+}
+func (nopStore) SetSourceEnabled(context.Context, string, bool) error                   { return nil }
+func (nopStore) SetSourceHealth(context.Context, string, eventstore.SourceHealth) error { return nil }
+func (nopStore) GetSourceCursor(context.Context, string) (string, string, bool, error) {
+	return "", "", false, nil
+}
+func (nopStore) SetSourceCursor(context.Context, string, string, string) error { return nil }
+func (nopStore) DedupeTrigger(context.Context, string, string, string, time.Time) (string, bool, error) {
+	return "", true, nil
+}
+func (nopStore) RecordTriggerRun(context.Context, string, string) error { return nil }
 
 // TestAPI_everyOpIsRegistered asserts every apispec.Op is actually
 // reachable on the mux NewMux builds — the "routes are registered" half

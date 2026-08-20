@@ -51,6 +51,7 @@ func NewMux(deps Deps) *http.ServeMux {
 	registerStatusRoute(mux, deps)
 	registerDoctorRoute(mux, deps)
 	registerDBRoutes(mux, deps)
+	registerSourceRoutes(mux, deps)
 	return mux
 }
 

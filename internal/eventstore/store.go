@@ -101,7 +101,61 @@ type Store interface {
 	// via domain.Advance at write time (see projection_runstate.go) — not
 	// re-derived here. Backs `kairos show`.
 	GetRunState(ctx context.Context, runID string) (domain.RunState, bool, error)
+
+	// UpsertSource creates or updates a trigger source's config row
+	// (08-triggers.md: "state, all owned by the daemon, never the
+	// plugin"). Health fields are untouched — see SetSourceHealth.
+	UpsertSource(ctx context.Context, src Source) error
+	// ListSources reads every registered source, ordered by id.
+	ListSources(ctx context.Context) ([]Source, error)
+	// GetSource reads one source by id.
+	GetSource(ctx context.Context, id string) (Source, bool, error)
+	// SetSourceEnabled flips a source's enabled flag — `kairos src
+	// pause`/`resume`.
+	SetSourceEnabled(ctx context.Context, id string, enabled bool) error
+	// SetSourceHealth records a poll cycle's outcome for `kairos status`.
+	SetSourceHealth(ctx context.Context, id string, health SourceHealth) error
+	// GetSourceCursor reads a source's persisted cursor/etag; ok is false
+	// for a source that has never completed a poll.
+	GetSourceCursor(ctx context.Context, sourceID string) (cursor, etag string, ok bool, err error)
+	// SetSourceCursor persists a source's cursor/etag after a poll —
+	// "cursor state stays owned by the daemon, never the plugin" (ADR
+	// 0011).
+	SetSourceCursor(ctx context.Context, sourceID, cursor, etag string) error
+	// DedupeTrigger is 08-triggers.md's one INSERT that is the difference
+	// between triggers working and not: `INSERT ... ON CONFLICT
+	// (dedupe_key) DO NOTHING RETURNING run_id`. isNew is true and
+	// existingRunID is "" the first time dedupeKey is seen (the caller
+	// must then create the run and call RecordTriggerRun); isNew is false
+	// and existingRunID names the run already created for every
+	// subsequent call with the same key. expiresAt is stamped by the
+	// caller (08-triggers.md: "+30d") so this package stays clock-free.
+	DedupeTrigger(ctx context.Context, dedupeKey, sourceID, itemID string, expiresAt time.Time) (existingRunID string, isNew bool, err error)
+	// RecordTriggerRun fills in the run_id column DedupeTrigger left
+	// empty, once the caller has actually created the run — two steps,
+	// not one, because DedupeTrigger must claim the key BEFORE the
+	// (possibly slow) run-creation call, or two concurrent pollers both
+	// pass an empty-run_id race.
+	RecordTriggerRun(ctx context.Context, dedupeKey, runID string) error
 	Close() error
+}
+
+// Source is one configured trigger source's persisted row.
+type Source struct {
+	ID, Kind, Config, Flow, Project string
+	IntervalSeconds                 int
+	Enabled                         bool
+	Health                          SourceHealth
+}
+
+// SourceHealth is a poll cycle's recorded outcome — healthy | throttled |
+// unhealthy, per 08-triggers.md's `source.health` column.
+type SourceHealth struct {
+	Status            string // "unknown" | "healthy" | "throttled" | "unhealthy"
+	Reason            string
+	ConsecutiveErrors int
+	LastPollAt        *time.Time
+	NextPollAt        *time.Time
 }
 
 // Config configures Open.

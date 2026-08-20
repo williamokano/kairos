@@ -46,6 +46,9 @@ var builtins = []builtinEvent{
 	{"engine.stopped", 1, func() domain.Event { return &domain.EngineStopped{} }},
 	{"engine.reconciled", 1, func() domain.Event { return &domain.EngineReconciled{} }},
 	{"process.orphan.reaped", 1, func() domain.Event { return &domain.ProcessOrphanReaped{} }},
+	// L16-introduced, system-stream: a TaskSource plugin call that
+	// received a declared secret.
+	{"secret.accessed", 1, func() domain.Event { return &domain.SecretAccessed{} }},
 	// L08-introduced, run-scoped actor-invocation facts (event.go's doc
 	// comments): unlike the four above, these DO have a RunID and ARE
 	// folded through domain.Advance, as no-op audit transitions.

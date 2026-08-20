@@ -1,0 +1,5 @@
+name: trigger-demo
+nodes:
+  - id: n1
+    actor: rule
+    output: { x: "string" }
