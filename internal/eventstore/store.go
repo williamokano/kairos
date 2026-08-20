@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/williamokano/kairos/internal/domain"
@@ -30,6 +31,36 @@ var ErrConflict = errors.New("eventstore: append conflict")
 // skip it: it has no RunState to fold into (domain.Advance has no case
 // for these event types, by design — see internal/domain/event.go).
 const SystemStream = "system"
+
+// ConversationStreamPrefix namespaces a Conversation's own stream —
+// stream_id = ConversationStreamPrefix+runID (L14 scopes Conversation 1:1
+// with Run — see L14-conversations.md's Documented decisions). Same
+// posture as SystemStream: reuses the events table, no RunState to fold
+// into, skipped by both built-in projections and Verify/Rebuild.
+const ConversationStreamPrefix = "conversation:"
+
+// ConversationStreamID returns the stream_id for runID's Conversation.
+func ConversationStreamID(runID string) string { return ConversationStreamPrefix + runID }
+
+// RunIDFromConversationStream extracts the runID from a stream_id built by
+// ConversationStreamID, reporting false if streamID is not a conversation
+// stream.
+func RunIDFromConversationStream(streamID string) (string, bool) {
+	if !strings.HasPrefix(streamID, ConversationStreamPrefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(streamID, ConversationStreamPrefix), true
+}
+
+// IsAuxStream reports whether streamID is one of the non-run-scoped
+// streams (system, or any Conversation) that domain.Advance has no case
+// for and that both built-in projections and Verify/Rebuild must skip
+// rather than attempt to fold — the single check point every such site
+// consults, so a third aux-stream namespace is a one-line addition here
+// instead of four.
+func IsAuxStream(streamID string) bool {
+	return streamID == SystemStream || strings.HasPrefix(streamID, ConversationStreamPrefix)
+}
 
 // AppendMeta is audit metadata shared by every event in one AppendIf call.
 // It is per-batch, not per-event: the caller (from L05 on) is a single

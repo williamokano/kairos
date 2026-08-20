@@ -31,16 +31,6 @@ func (e *Engine) admissionRequest(nd registry.NodeDef, actor string) admission.R
 	return req
 }
 
-// enqueuePending holds a Queued CmdStartNode for later retry — no side
-// effect has been recorded for it yet (admission runs before
-// NodeExecutionStarted), so replaying it later via runActorDispatch is
-// exactly as if dispatchStartNode were being called for the first time.
-func (e *Engine) enqueuePending(definitionRef string, c domain.CmdStartNode) {
-	e.pendingMu.Lock()
-	e.pending = append(e.pending, pendingStart{definitionRef: definitionRef, cmd: c})
-	e.pendingMu.Unlock()
-}
-
 // storeClaim records a Granted decision's claims against execID, so the
 // actor dispatch (running on a different goroutine once a reaper is
 // spawned) can release them without needing the Claims value threaded
@@ -51,11 +41,43 @@ func (e *Engine) storeClaim(execID string, claims admission.Claims) {
 	e.claimsMu.Unlock()
 }
 
+// drainedItem is one pending CmdStartNode that drainMu's decision phase
+// resolved to a terminal admission outcome (Granted or Denied — never
+// Queued, which just stops the drain).
+type drainedItem struct {
+	definitionRef string
+	cmd           domain.CmdStartNode
+	nd            registry.NodeDef
+	actor         string
+	claims        admission.Claims
+	granted       bool
+	denyReason    string
+}
+
 // releaseAndDrain releases execID's admission claims (a no-op if already
-// released or never held — see admission.Manager.Release's doc comment)
-// and then retries every currently-queued CmdStartNode in FIFO order,
-// stopping at the first one that is still not admittable so ordering
-// among queued nodes is preserved.
+// released or never held — see admission.Manager.Release's doc comment),
+// decides outcomes for every currently-queued CmdStartNode in FIFO order
+// under drainMu, then dispatches those outcomes OUTSIDE the lock.
+//
+// Release and the decision phase run under the SAME drainMu critical
+// section as admitOrQueue's decide-then-maybe-enqueue sequence
+// (dispatch.go) — this closes a lost-wakeup race a real
+// retry-onto-the-same-workspace scenario hit: without it, a concurrent
+// dispatch could observe TryAdmit's Queued verdict, then lose the race to
+// append itself to the pending list until AFTER this method's own drain
+// had already run out and found the list empty — release happened, but
+// nothing was left to wake the item that was about to queue itself, and
+// it never ran again. Locking Release itself (not just the decision loop)
+// closes that window: nothing can decide Queued-and-enqueue while a
+// release is in flight, and nothing can release while a decision is being
+// recorded.
+//
+// Dispatch (actor spawn, or denyNode's fold) happens only after drainMu
+// is released, deliberately: a synchronous dispatch failure calls this
+// same method again (dispatchLLMActor's own "if !spawned" defer, for one)
+// — re-acquiring drainMu from inside a call already holding it would
+// deadlock. Deciding first and dispatching after is what makes that
+// reentrant call safe.
 //
 // Safe to call more than once for the same execID: the second call finds
 // no claim in the map and only re-attempts the drain, which is harmless.
@@ -66,34 +88,48 @@ func (e *Engine) releaseAndDrain(ctx context.Context, execID string) {
 		delete(e.claims, execID)
 	}
 	e.claimsMu.Unlock()
+
+	e.drainMu.Lock()
 	if ok {
 		e.admit.Release(claims)
 	}
-	e.drainPending(ctx)
+	items := e.decidePendingLocked()
+	e.drainMu.Unlock()
+
+	e.dispatchDrained(ctx, items)
 }
 
-// drainPending retries the head of the pending queue until it hits a
-// request that cannot be admitted yet, or the queue empties. Draining one
-// item at a time from the front, stopping on the first non-Granted
-// outcome, keeps queued nodes released in the order they queued rather
-// than allowing a later, cheaper request to jump ahead.
-//
-// drainMu serializes the entire method: releaseAndDrain runs from
-// whichever goroutine finishes a node execution, so two releases can
-// legitimately race each other. Without a single-drainer lock, both could
-// read the same queue head before either pops it and admit the same
-// CmdStartNode twice — pendingMu alone only protects individual
-// read/pop/append operations, not the read-decide-pop sequence as a
-// whole.
-func (e *Engine) drainPending(ctx context.Context) {
+// admitOrQueue is dispatchStartNode's admission step: TryAdmit, and if
+// the verdict is Queued, append to the pending list — both under drainMu,
+// for the same reason releaseAndDrain takes it (see that method's doc
+// comment). Returns the decision so the caller still handles
+// Granted/Denied itself (dispatchStartNode's own caller dispatches
+// immediately, on its own goroutine — only the drain path needs the
+// decide/dispatch split, since only it can race a release).
+func (e *Engine) admitOrQueue(definitionRef string, c domain.CmdStartNode, req admission.Request) admission.Decision {
 	e.drainMu.Lock()
 	defer e.drainMu.Unlock()
+	decision := e.admit.TryAdmit(req)
+	if decision.Outcome == admission.Queued {
+		e.pendingMu.Lock()
+		e.pending = append(e.pending, pendingStart{definitionRef: definitionRef, cmd: c})
+		e.pendingMu.Unlock()
+	}
+	return decision
+}
 
+// decidePendingLocked resolves the head of the pending queue until it
+// hits a request that cannot be admitted yet, or the queue empties,
+// popping and collecting a terminal outcome for each — never dispatching
+// anything itself (see releaseAndDrain's doc comment for why). Assumes
+// drainMu is already held.
+func (e *Engine) decidePendingLocked() []drainedItem {
+	var out []drainedItem
 	for {
 		e.pendingMu.Lock()
 		if len(e.pending) == 0 {
 			e.pendingMu.Unlock()
-			return
+			return out
 		}
 		next := e.pending[0]
 		e.pendingMu.Unlock()
@@ -116,21 +152,34 @@ func (e *Engine) drainPending(ctx context.Context) {
 		switch decision.Outcome {
 		case admission.Granted:
 			e.popPending()
-			e.storeClaim(next.cmd.ExecID, decision.Claims)
-			if err := e.runActorDispatch(ctx, nd, next.cmd, actor); err != nil {
-				e.log.Error("dispatch failed for a drained admission", "runID", next.cmd.RunID, "err", err)
-			}
+			out = append(out, drainedItem{definitionRef: next.definitionRef, cmd: next.cmd, nd: nd, actor: actor, claims: decision.Claims, granted: true})
 			// Loop again: draining one success may have freed nothing new,
 			// but a Denied/Queued item further down never gets a chance if
 			// we stop here only because this one succeeded.
 		case admission.Denied:
 			e.popPending()
-			if err := e.denyNode(ctx, next.cmd, decision.Reason); err != nil {
-				e.log.Error("recording denial for a drained admission failed", "runID", next.cmd.RunID, "err", err)
-			}
+			out = append(out, drainedItem{cmd: next.cmd, denyReason: decision.Reason})
 		case admission.Queued:
 			// Still can't run — stop draining, preserving FIFO order.
-			return
+			return out
+		}
+	}
+}
+
+// dispatchDrained runs decidePendingLocked's collected outcomes AFTER
+// drainMu has been released — see releaseAndDrain's doc comment for why
+// dispatch must never run while the lock is held.
+func (e *Engine) dispatchDrained(ctx context.Context, items []drainedItem) {
+	for _, it := range items {
+		if !it.granted {
+			if err := e.denyNode(ctx, it.cmd, it.denyReason); err != nil {
+				e.log.Error("recording denial for a drained admission failed", "runID", it.cmd.RunID, "err", err)
+			}
+			continue
+		}
+		e.storeClaim(it.cmd.ExecID, it.claims)
+		if err := e.runActorDispatch(ctx, it.nd, it.cmd, it.actor); err != nil {
+			e.log.Error("dispatch failed for a drained admission", "runID", it.cmd.RunID, "err", err)
 		}
 	}
 }

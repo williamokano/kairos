@@ -194,6 +194,30 @@ func (c *Client) DBRebuild(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, "/db/rebuild", nil, nil)
 }
 
+// ConversationMessage mirrors internal/domain.ConversationMessageAppended
+// — a separate type rather than importing internal/domain, matching this
+// file's existing pattern (RunState/NodeExecution above are hand-mirrored
+// too, not imported): internal/cli stays independent of the engine's own
+// packages, consulting only the wire shape over the socket.
+type ConversationMessage struct {
+	Role string `json:"Role"`
+	Text string `json:"Text"`
+}
+
+type conversationResponse struct {
+	Messages []ConversationMessage `json:"messages"`
+}
+
+func (c *Client) GetConversation(ctx context.Context, runID string) ([]ConversationMessage, error) {
+	var out conversationResponse
+	err := c.do(ctx, http.MethodGet, "/runs/"+runID+"/conversation", nil, &out)
+	return out.Messages, err
+}
+
+func (c *Client) PostConversationMessage(ctx context.Context, runID, text string) error {
+	return c.do(ctx, http.MethodPost, "/runs/"+runID+"/conversation/messages", map[string]string{"text": text}, nil)
+}
+
 // Ping reports whether the daemon responds at all — used by ensureDaemon
 // to detect a live socket before attempting auto-start.
 func (c *Client) Ping(ctx context.Context) bool {

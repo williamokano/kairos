@@ -43,6 +43,7 @@ type Deps struct {
 func NewMux(deps Deps) *http.ServeMux {
 	mux := http.NewServeMux()
 	registerRunRoutes(mux, deps)
+	registerConversationRoutes(mux, deps)
 	registerEventRoutes(mux, deps)
 	registerStatusRoute(mux, deps)
 	registerDoctorRoute(mux, deps)

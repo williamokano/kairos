@@ -208,11 +208,12 @@ func projectFixture(eventType string, ev domain.Event) error {
 		}
 		_, err = advanceOK(state, ev)
 		return err
-	case "engine.started", "engine.stopped", "engine.reconciled", "process.orphan.reaped":
-		// System-stream events: not run-scoped, never folded through
-		// domain.Advance (see event.go's doc comment on them). "Projects"
-		// here just means the decode succeeded — there is no RunState to
-		// fold into.
+	case "engine.started", "engine.stopped", "engine.reconciled", "process.orphan.reaped",
+		"conversation.message.appended":
+		// System-stream and Conversation-stream events: not run-scoped,
+		// never folded through domain.Advance (see event.go's doc
+		// comments on them). "Projects" here just means the decode
+		// succeeded — there is no RunState to fold into.
 		return nil
 	case "llm.session.started", "session.resume.failed", "session.cost.unavailable", "output.repair.attempted",
 		"log.degraded", "log.truncated":

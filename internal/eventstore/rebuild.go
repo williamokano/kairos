@@ -121,7 +121,7 @@ func (s *store) Verify(ctx context.Context) (VerifyReport, error) {
 
 	scratch := map[string]domain.RunState{} // run_id -> folded state, in memory only
 	for _, env := range envs {
-		if env.StreamID == SystemStream {
+		if IsAuxStream(env.StreamID) {
 			// Non-run-scoped facts (L05's engine.*/process.orphan.reaped)
 			// — domain.Advance has no case for them and none is needed;
 			// see SystemStream's doc comment.

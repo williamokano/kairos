@@ -29,7 +29,7 @@ func (RunIndexProjection) Reset(ctx context.Context, tx *sql.Tx) error {
 }
 
 func (RunIndexProjection) Apply(ctx context.Context, tx *sql.Tx, env events.Envelope) error {
-	if env.StreamID == SystemStream {
+	if IsAuxStream(env.StreamID) {
 		return nil
 	}
 	var status string

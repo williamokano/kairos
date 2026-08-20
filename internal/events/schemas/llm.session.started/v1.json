@@ -8,6 +8,7 @@
     "ExecID": { "type": "string", "minLength": 1 },
     "SessionID": { "type": "string", "minLength": 1 },
     "Resumed": { "type": "boolean" },
-    "Dir": { "type": "string", "minLength": 1 }
+    "Dir": { "type": "string", "minLength": 1 },
+    "ResumeMode": { "type": "string" }
   }
 }

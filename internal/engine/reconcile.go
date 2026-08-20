@@ -176,6 +176,16 @@ func (e *Engine) reconcileRun(ctx context.Context, runID, bootID string) (reconc
 		}
 	}
 
+	// wait: conversation catch-up (L14): a message may have arrived on
+	// this run's Conversation stream while the daemon was down —
+	// Store.Subscribe only delivers events appended after Start
+	// subscribes, so the live loop alone would never see it. Cheap and
+	// a no-op unless runID actually has a Waiting/conversation exec (see
+	// resolveConversationWait's own guard).
+	if err := e.resolveConversationWait(ctx, runID, true); err != nil {
+		return counts, fmt.Errorf("resolving wait: conversation backlog: %w", err)
+	}
+
 	return counts, nil
 }
 

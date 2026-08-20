@@ -225,6 +225,13 @@ type LLMSessionStarted struct {
 	// would silently find nothing. Recorded now, checked before the next
 	// attempt ever tries to resume.
 	Dir string
+	// ResumeMode is "native" when Resumed is true (L14 makes the CLI's own
+	// --resume/exec-resume flag a real part of the invocation, not just an
+	// env-var hint) and empty otherwise. 04-agents.md's other named mode,
+	// "digest" (rehydrate from run memory plus a summarised transcript),
+	// is Future work — it needs context re-injection machinery this
+	// document does not build (see L14-conversations.md).
+	ResumeMode string
 }
 
 func (LLMSessionStarted) EventType() string { return "llm.session.started" }
@@ -422,3 +429,20 @@ type EffectConfirmed struct {
 
 func (EffectConfirmed) EventType() string { return "effect.confirmed" }
 func (EffectConfirmed) isEvent()          {}
+
+// ConversationMessageAppended is one message on a Conversation's own
+// stream (stream_id = "conversation:<runID>" — L14 scopes Conversation
+// 1:1 with Run, see L14-conversations.md's Documented decisions), never
+// folded by Advance: a Conversation is not run-scoped state, the same
+// posture the "system" stream's events already hold since L05. Role is
+// "human" for every message this document's scope produces (the composer
+// in 09-cli-and-tui.md's mockup); the field exists for forward
+// compatibility with an "actor"/"system" role a later document may add,
+// not because anything writes one today.
+type ConversationMessageAppended struct {
+	Role string
+	Text string
+}
+
+func (ConversationMessageAppended) EventType() string { return "conversation.message.appended" }
+func (ConversationMessageAppended) isEvent()          {}

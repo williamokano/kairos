@@ -88,12 +88,11 @@ func (e *Engine) dispatchStartNode(ctx context.Context, definitionRef string, c 
 	// denial is represented as a zero-duration started-then-failed
 	// attempt rather than an illegal Pending->Failed transition.
 	req := e.admissionRequest(nd, actor)
-	decision := e.admit.TryAdmit(req)
+	decision := e.admitOrQueue(definitionRef, c, req)
 	switch decision.Outcome {
 	case admission.Denied:
 		return e.denyNode(ctx, c, decision.Reason)
 	case admission.Queued:
-		e.enqueuePending(definitionRef, c)
 		return nil
 	}
 
@@ -158,11 +157,18 @@ func (e *Engine) dispatchSignalNode(ctx context.Context, c domain.CmdSignalNode)
 }
 
 func (e *Engine) dispatchEnterWait(ctx context.Context, c domain.CmdEnterWait) error {
-	// "A wait's entire footprint is three rows" (06-durability.md) — for
-	// L05 there is no wait-bookkeeping table (no wait-bearing node exists
-	// in the milestone workflow), so this only logs; a real
-	// waiters/timers implementation is Future work.
-	e.log.Info("node entered wait (no real wait bookkeeping table yet)", "runID", c.RunID, "nodeID", c.NodeID, "kind", c.Wait.Kind)
+	// "A wait's entire footprint is three rows" (06-durability.md) — L05
+	// through L11 had no wait-bearing node in scope, so this only logged.
+	// L14 makes WaitConversation real, but still without a dedicated
+	// waiters/timers SQL table: the NodeExecution's own ExecWaiting row
+	// (already committed by the time this runs — see advance.go's
+	// dispatchExec) plus the Conversation's own event stream ARE the
+	// rows; resolveConversationWait (conversation.go) re-derives
+	// resolution from them on every new message and on every Reconcile,
+	// no separate bookkeeping needed. Every other WaitKind (poll,
+	// webhook, human, timer) remains a documented gap — Future work, not
+	// silently dropped.
+	e.log.Info("node entered wait", "runID", c.RunID, "nodeID", c.NodeID, "kind", c.Wait.Kind)
 	return nil
 }
 

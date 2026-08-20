@@ -67,14 +67,18 @@ func (e *Engine) dispatchLLMActor(ctx context.Context, nd registry.NodeDef, c do
 	if err != nil {
 		return fmt.Errorf("resolving session: %w", err)
 	}
+	resumeMode := ""
+	if resumeOf != "" {
+		resumeMode = "native"
+	}
 	if err := e.appendNext(ctx, c.RunID, domain.LLMSessionStarted{
 		RunID: c.RunID, NodeID: c.NodeID, ExecID: c.ExecID,
-		SessionID: sessionID, Resumed: resumeOf != "", Dir: workDir,
+		SessionID: sessionID, Resumed: resumeOf != "", Dir: workDir, ResumeMode: resumeMode,
 	}); err != nil {
 		return err
 	}
 
-	started, err := e.startLLM(ctx, c, workDir, dir, outputPath, schemaPath, nd.Prompt, resumeOf)
+	started, err := e.startLLM(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, nd.Prompt, resumeOf)
 	if err != nil {
 		return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure, "starting process: "+err.Error())
 	}
@@ -86,7 +90,7 @@ func (e *Engine) dispatchLLMActor(ctx context.Context, nd registry.NodeDef, c do
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
-		e.reapLLM(ctx, c, workDir, dir, outputPath, schemaPath, started.PID)
+		e.reapLLM(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, started.PID)
 	}()
 	return nil
 }
@@ -159,7 +163,7 @@ func (e *Engine) priorSession(ctx context.Context, runID, nodeID string) (domain
 	return latest, found, nil
 }
 
-func (e *Engine) startLLM(ctx context.Context, c domain.CmdStartNode, workDir, dir, outputPath, schemaPath, prompt, resumeOf string) (local.Started, error) {
+func (e *Engine) startLLM(ctx context.Context, c domain.CmdStartNode, actorKind, workDir, dir, outputPath, schemaPath, prompt, resumeOf string) (local.Started, error) {
 	env := []string{
 		"HOME=" + dir,
 		"PATH=/usr/bin:/bin:/usr/local/bin",
@@ -171,17 +175,42 @@ func (e *Engine) startLLM(ctx context.Context, c domain.CmdStartNode, workDir, d
 		"KAIROS_OUTPUT=" + outputPath,
 		"KAIROS_SCHEMA=" + schemaPath,
 	}
+	argv := []string{e.llmBinary}
 	if resumeOf != "" {
 		env = append(env, "KAIROS_RESUME_SESSION_ID="+resumeOf)
+		argv = append(argv, nativeResumeArgv(actorKind, resumeOf)...)
 	}
 	return e.exec.Start(ctx, local.ExecSpec{
 		RunID: c.RunID, NodeID: c.NodeID, ExecID: c.ExecID,
 		Dir:     dir,
 		WorkDir: workDir,
 		Env:     env,
-		Argv:    []string{e.llmBinary},
+		Argv:    argv,
 		Stdin:   []byte(prompt),
 	})
+}
+
+// nativeResumeArgv is 04-agents.md's "native" resume mode made real: the
+// CLI's own flag for resuming its own conversation, appended to argv
+// alongside (not instead of) the KAIROS_RESUME_SESSION_ID env var — the
+// env var is Kairos's own audit trail of what it asked for; this is what
+// actually changes the invocation. gemini has no documented native resume
+// flag (04-agents.md: extraction, Stage 3, is Gemini's own path when a
+// runner cannot resume at all) and local is this repo's own placeholder
+// CLI kind (L08) with no native concept to speak of — both return nil,
+// which the caller already treats as "no resume flags to add" since
+// resumeOf being non-empty is what triggers the call in the first place;
+// a nil result here just means KAIROS_RESUME_SESSION_ID is the only
+// signal that reaches the process, same as before this document.
+func nativeResumeArgv(actorKind, sessionID string) []string {
+	switch actorKind {
+	case "claude":
+		return []string{"--resume", sessionID}
+	case "codex":
+		return []string{"exec", "resume", sessionID}
+	default:
+		return nil
+	}
 }
 
 // reapLLM blocks for the process's exit, then runs 04-agents.md's Stage 2
@@ -191,7 +220,7 @@ func (e *Engine) startLLM(ctx context.Context, c domain.CmdStartNode, workDir, d
 // top-level attempt, possibly on a mutated actor) are NOT this function's
 // job: Stage 4 is domain's own existing retry ladder, reached simply by
 // this function reporting SchemaValid: false like any other actor.
-func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, workDir, dir, outputPath, schemaPath string, pid int) {
+func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, actorKind, workDir, dir, outputPath, schemaPath string, pid int) {
 	defer e.releaseAndDrain(ctx, c.ExecID)
 	defer e.collectLogs(ctx, c.RunID, c.NodeID, c.ExecID, dir)
 
@@ -212,7 +241,7 @@ func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, workDir, di
 		}); err != nil {
 			e.log.Error("recording output.repair.attempted", "error", err)
 		}
-		e.repairTurn(ctx, c, workDir, dir, outputPath, schemaPath, violations)
+		e.repairTurn(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, violations)
 		valid, _ = e.checkOutput(outputPath, schemaPath)
 	}
 
@@ -249,7 +278,7 @@ func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, workDir, di
 // happened, checkOutput's second call after this returns is what decides
 // the outcome, matching Stage 2's contract exactly (repair or don't, the
 // eventual NodeOutputReceived carries the truth either way).
-func (e *Engine) repairTurn(ctx context.Context, c domain.CmdStartNode, workDir, dir, outputPath, schemaPath string, violations []string) {
+func (e *Engine) repairTurn(ctx context.Context, c domain.CmdStartNode, actorKind, workDir, dir, outputPath, schemaPath string, violations []string) {
 	var b bytes.Buffer
 	b.WriteString("Your output does not validate:\n")
 	for _, v := range violations {
@@ -257,7 +286,7 @@ func (e *Engine) repairTurn(ctx context.Context, c domain.CmdStartNode, workDir,
 	}
 	b.WriteString("Fix the FILE only. Change no code. Run `kairos check-output` until it exits 0.\n")
 
-	started, err := e.startLLM(ctx, c, workDir, dir, outputPath, schemaPath, b.String(), "")
+	started, err := e.startLLM(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, b.String(), "")
 	if err != nil {
 		return
 	}

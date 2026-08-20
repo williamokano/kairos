@@ -66,6 +66,10 @@ var builtins = []builtinEvent{
 	{"waiver.grant", 1, func() domain.Event { return &domain.WaiverGranted{} }},
 	{"effect.confirmation.requested", 1, func() domain.Event { return &domain.EffectConfirmationRequested{} }},
 	{"effect.confirmed", 1, func() domain.Event { return &domain.EffectConfirmed{} }},
+	// L14-introduced, Conversation-stream-scoped fact (event.go's doc
+	// comment) — same non-run-scoped posture as the L05 system-stream
+	// rows above: no RunID, never folded through domain.Advance.
+	{"conversation.message.appended", 1, func() domain.Event { return &domain.ConversationMessageAppended{} }},
 }
 
 // Builtin returns a Registry with every domain.Event type L01 defined,

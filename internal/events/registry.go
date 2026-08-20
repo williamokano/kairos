@@ -218,6 +218,8 @@ func derefEvent(ev domain.Event) domain.Event {
 		return *e
 	case *domain.EffectConfirmed:
 		return *e
+	case *domain.ConversationMessageAppended:
+		return *e
 	default:
 		return ev
 	}

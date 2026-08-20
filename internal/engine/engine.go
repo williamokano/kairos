@@ -230,6 +230,18 @@ func (e *Engine) Start(ctx context.Context) error {
 				if env.StreamID == eventstore.SystemStream {
 					continue
 				}
+				if runID, ok := eventstore.RunIDFromConversationStream(env.StreamID); ok {
+					// Conversation streams never enqueue to a shard (no
+					// RunState to fold into — see IsAuxStream's doc
+					// comment); a message's only effect is possibly
+					// resolving a wait: conversation node, handled
+					// synchronously here since conversation traffic is
+					// human-paced, not hot-path.
+					if err := e.resolveConversationWait(runCtx, runID, false); err != nil {
+						e.log.Error("resolving wait: conversation", "runID", runID, "error", err)
+					}
+					continue
+				}
 				e.shardFor(env.StreamID).enqueue(env)
 			}
 		}
