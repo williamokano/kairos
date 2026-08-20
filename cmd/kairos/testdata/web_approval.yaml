@@ -1,0 +1,19 @@
+name: web-approval
+nodes:
+  - id: propose
+    actor: shell
+    prompt: echo '{"summary":"delete the staging bucket"}' > "$KAIROS_OUTPUT_PATH"
+    output: { summary: "string!" }
+
+  - id: approve
+    actor: human
+    workspace: none
+    inputs:
+      summary: "$.outputs.propose.summary"
+    output: { decision: "string!", reason: "string" }
+    wait:
+      "on":
+        - kind: human
+      weight: read
+      timeout: 1h
+      onTimeout: park

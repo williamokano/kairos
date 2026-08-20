@@ -1,0 +1,10 @@
+{{define "frag/timeline"}}
+<table class="events">
+  <thead><tr><th>seq</th><th>type</th></tr></thead>
+  <tbody>
+  {{range .}}
+  <tr><td>{{.Sequence}}</td><td>{{.EventType}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}

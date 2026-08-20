@@ -1,0 +1,14 @@
+{{define "doctor"}}
+<h1>Doctor</h1>
+<table>
+  <thead><tr><th></th><th>check</th><th>detail</th></tr></thead>
+  <tbody>
+  {{range .Checks}}
+  <tr><td>{{if .OK}}✓{{else}}✗{{end}}</td><td>{{.Name}}</td><td>{{.Detail}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{if .Deferred}}
+<p>not yet checked: {{range .Deferred}}{{.}} {{end}}</p>
+{{end}}
+{{end}}

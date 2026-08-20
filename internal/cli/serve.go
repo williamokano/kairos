@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/spf13/cobra"
 )
@@ -22,12 +23,35 @@ type ServeFunc func(ctx context.Context) error
 // above).
 type TUIFunc func(ctx context.Context, sockPath, homePath string) error
 
+// WebFunc ensures the daemon (which already serves the web UI, per
+// 10-webui.md — `kairos serve` binds it alongside the admin socket) is
+// running, then opens a browser at a one-time-token URL. Injected from
+// cmd/kairos for the same reason as ServeFunc/TUIFunc: opening a browser
+// needs os/exec, which internal/cli may not import.
+type WebFunc func(ctx context.Context, sockPath, homePath string) error
+
 func newServeCmd(app *appCtx) *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve",
 		Short: "run the daemon in the foreground",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return app.serve(cmd.Context())
+		},
+	}
+}
+
+func newWebCmd(app *appCtx) *cobra.Command {
+	return &cobra.Command{
+		Use:   "web",
+		Short: "open the web UI in a browser",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if _, err := ensureClient(cmd, app); err != nil {
+				return err
+			}
+			if app.web == nil {
+				return fmt.Errorf("web UI support not wired into this binary")
+			}
+			return app.web(cmd.Context(), app.sockPath, app.homePath)
 		},
 	}
 }

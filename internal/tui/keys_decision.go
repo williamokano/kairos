@@ -157,7 +157,7 @@ func (m Model) decisionReadyForFocus() bool {
 			return false
 		}
 	}
-	for _, f := range m.decision.ctx.hasHighOrCriticalFindings() {
+	for _, f := range m.decision.ctx.HighOrCritical() {
 		if !m.decision.riskAccepted[f.ID] {
 			return false
 		}
@@ -166,7 +166,7 @@ func (m Model) decisionReadyForFocus() bool {
 }
 
 func (m *Model) acceptFocusedRisk() {
-	findings := m.decision.ctx.hasHighOrCriticalFindings()
+	findings := m.decision.ctx.HighOrCritical()
 	if len(findings) == 0 {
 		return
 	}

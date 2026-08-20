@@ -1,0 +1,38 @@
+{{define "home"}}
+<section class="composer">
+  <form hx-post="/runs" hx-target="#running" hx-swap="afterbegin">
+    <input type="hidden" name="nonce" value="{{.FormNonce}}">
+    <input name="definitionPath" placeholder="path to a workflow definition…" autofocus required>
+    <button type="submit">run ⏎</button>
+  </form>
+</section>
+
+<section>
+  <h2>Waiting on you ({{len .Waiting}})</h2>
+  {{if eq (len .Waiting) 0}}
+    <p class="empty">Nothing waiting.</p>
+  {{else}}
+  <ul class="waiting-list">
+    {{range .Waiting}}
+    <li><a href="/t/{{.RunID}}/{{.NodeID}}">{{.RunID}} · {{.NodeID}}</a> — waiting</li>
+    {{end}}
+  </ul>
+  {{end}}
+</section>
+
+<section id="running">
+  <h2>Running ({{len .Running}})</h2>
+  {{if eq (len .Running) 0}}
+    <p class="empty">Nothing running. Describe a task above, or drop a file in ~/.kairos/inbox/.</p>
+  {{else}}
+  <table>
+    <thead><tr><th>run</th><th>status</th><th>started</th></tr></thead>
+    <tbody>
+    {{range .Running}}
+    <tr id="run-{{.RunID}}"><td><a href="/runs/{{.RunID}}">{{id .RunID}}</a></td><td>{{.Status}}</td><td>{{relTime .StartedAt}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</section>
+{{end}}

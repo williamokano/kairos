@@ -57,8 +57,10 @@ func collectLeaves(cmd *cobra.Command, prefix string) []string {
 // not itself a route call — it's what BINDS the routes). check-output
 // (L08) is a local file-validation tool an actor process runs inside its
 // own workspace — it never talks to the daemon at all, so there is no
-// route for it to map to.
-var exemptCLIVerbs = map[string]bool{"version": true, "serve": true, "check-output": true}
+// route for it to map to. web (L20) mints a token URL and opens a
+// browser — like serve, it is what BINDS the web UI's routes rather than
+// itself being one.
+var exemptCLIVerbs = map[string]bool{"version": true, "serve": true, "check-output": true, "web": true}
 
 // TestUI_everyCallHasCLICounterpart (AGENTS.md §9) is real from L04:
 // every apispec.Op maps to a CLI verb that reaches it, and every non-exempt

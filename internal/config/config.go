@@ -88,6 +88,14 @@ type Config struct {
 	// Defaults to true — the inbox is "the best local affordance in the
 	// design" per 08-triggers.md and costs nothing when empty.
 	InboxEnabled bool
+	// WebAddr is the web UI's listen address (10-webui.md:
+	// "http://127.0.0.1:7717"). Defaults to 127.0.0.1:7717. Binding a
+	// non-loopback address refuses unless WebNonLoopbackAck matches
+	// web.RequiredNonLoopbackAck exactly (L20).
+	WebAddr string
+	// WebNonLoopbackAck is the acknowledgement string required to bind
+	// WebAddr to a non-loopback host — empty by default, refusing.
+	WebNonLoopbackAck string
 }
 
 // Load resolves $KAIROS_HOME (env override, then $XDG_STATE_HOME, then
@@ -149,6 +157,11 @@ func Load() (Config, error) {
 		inboxEnabled = v.GetBool("INBOX_ENABLED")
 	}
 
+	webAddr := v.GetString("WEB_ADDR")
+	if webAddr == "" {
+		webAddr = "127.0.0.1:7717"
+	}
+
 	return Config{
 		Home:                    home,
 		WorkspaceRepo:           v.GetString("WORKSPACE_REPO"),
@@ -165,6 +178,8 @@ func Load() (Config, error) {
 		TriggerMaxQueued:        triggerMaxQueued,
 		TriggerMaxOpenDecisions: triggerMaxOpenDecisions,
 		InboxEnabled:            inboxEnabled,
+		WebAddr:                 webAddr,
+		WebNonLoopbackAck:       v.GetString("WEB_NON_LOOPBACK_ACK"),
 	}, nil
 }
 

@@ -7,27 +7,35 @@
 // retrofitted once a web UI (L20) exists.
 package apispec
 
-// Op is one daemon API operation and the CLI verb that exercises it.
+// Op is one daemon API operation, the CLI verb that exercises it, and
+// (L20) the web UI route pattern that exercises it, if a web page or
+// mutation for it exists yet. WebPath is deliberately optional — most
+// Ops predate the web UI and 10-webui.md's own ~50-day scope names
+// several routes (diff, tree, cost, gates, events, runners, flows) this
+// pass does not build (see L20-webui.md's Future work) — so an empty
+// WebPath means "no web route yet," not a parity failure the way a
+// missing CLIVerb is.
 type Op struct {
 	Method  string
 	Path    string
 	CLIVerb string
+	WebPath string
 }
 
 // Ops is every operation L04 registers. Adding an operation later
 // documents adds an entry here; the parity test in internal/archtest
 // fails until both the route and the verb exist.
 var Ops = []Op{
-	{Method: "POST", Path: "/runs", CLIVerb: "run"},
-	{Method: "GET", Path: "/runs", CLIVerb: "ls"},
-	{Method: "GET", Path: "/runs/{id}", CLIVerb: "show"},
-	{Method: "GET", Path: "/runs/{id}/conversation", CLIVerb: "conversation show"},
-	{Method: "POST", Path: "/runs/{id}/conversation/messages", CLIVerb: "conversation send"},
-	{Method: "POST", Path: "/runs/{id}/approve", CLIVerb: "approve"},
+	{Method: "POST", Path: "/runs", CLIVerb: "run", WebPath: "POST /runs"},
+	{Method: "GET", Path: "/runs", CLIVerb: "ls", WebPath: "GET /runs"},
+	{Method: "GET", Path: "/runs/{id}", CLIVerb: "show", WebPath: "GET /runs/{id}"},
+	{Method: "GET", Path: "/runs/{id}/conversation", CLIVerb: "conversation show", WebPath: "GET /c/{runID}"},
+	{Method: "POST", Path: "/runs/{id}/conversation/messages", CLIVerb: "conversation send", WebPath: "POST /c/{runID}/messages"},
+	{Method: "POST", Path: "/runs/{id}/approve", CLIVerb: "approve", WebPath: "POST /t/{runID}/{nodeID}/answer"},
 	{Method: "POST", Path: "/runs/{id}/fork", CLIVerb: "fork"},
 	{Method: "GET", Path: "/runs/{a}/compare/{b}", CLIVerb: "compare"},
 	{Method: "GET", Path: "/status", CLIVerb: "status"},
-	{Method: "GET", Path: "/doctor", CLIVerb: "doctor"},
+	{Method: "GET", Path: "/doctor", CLIVerb: "doctor", WebPath: "GET /doctor"},
 	{Method: "POST", Path: "/db/verify", CLIVerb: "db verify"},
 	{Method: "POST", Path: "/db/rebuild", CLIVerb: "db reindex"},
 	{Method: "POST", Path: "/sources", CLIVerb: "src add"},

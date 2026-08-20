@@ -49,6 +49,16 @@ func (h *daemonHarness) start(t *testing.T, timeout time.Duration) {
 		t.Fatalf("starting kairos serve: %v", err)
 	}
 	h.cmd = cmd
+	pid := cmd.Process.Pid
+	// A real hygiene bug this test file didn't have until L20 exposed it:
+	// a test that fails (e.g. t.Fatal) between start() and its own
+	// explicit teardown leaked the daemon process, which then held the
+	// web UI's fixed listen port and made the NEXT test's start() fail
+	// too ("address already in use") — a failure that looked unrelated to
+	// its actual cause. t.Cleanup runs even on failure/panic, and killing
+	// an already-dead process group is a harmless ESRCH, so this is safe
+	// to register unconditionally and skip the do-nothing common case.
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
 
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

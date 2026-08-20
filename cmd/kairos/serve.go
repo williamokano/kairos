@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -23,6 +24,7 @@ import (
 	"github.com/williamokano/kairos/internal/executor/local"
 	"github.com/williamokano/kairos/internal/policy"
 	"github.com/williamokano/kairos/internal/tasksource"
+	"github.com/williamokano/kairos/internal/web"
 )
 
 // serve is the daemon boot sequence, injected into internal/cli as a
@@ -164,10 +166,65 @@ func serve(parentCtx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ln) }()
 
+	// The agent-facing socket (L20, real for the first time — see
+	// internal/api/agentsocket.go): a strictly smaller route table than
+	// the admin socket above, so a workflow actor process cannot reach
+	// approve/answer/publish/admin/start-a-run even if it somehow learned
+	// this path. Nothing dials it yet (no document has built an
+	// agent-initiated daemon callback path — see agentsocket.go's doc
+	// comment); it exists now so the boundary is real infrastructure
+	// rather than aspirational.
+	agentSockPath := filepath.Join(cfg.Home, "agent.sock")
+	agentLn, err := api.Listen(agentSockPath)
+	if err != nil {
+		return fmt.Errorf("binding agent socket: %w", err)
+	}
+	defer func() { _ = agentLn.Close() }()
+	defer func() { _ = os.Remove(agentSockPath) }()
+	agentSrv := &http.Server{Handler: api.NewAgentMux(deps)}
+	agentErrCh := make(chan error, 1)
+	go func() { agentErrCh <- agentSrv.Serve(agentLn) }()
+
+	// The web UI (L20) is served from this same process — a browser
+	// cannot dial the unix admin socket, so it gets its own loopback TCP
+	// listener, but it is a client of the identical API surface, dialing
+	// sockPath itself just like internal/cli.Client does (10-webui.md:
+	// "both surfaces are clients of the same API over the same socket").
+	webToken, err := web.GenerateToken()
+	if err != nil {
+		return fmt.Errorf("generating web token: %w", err)
+	}
+	tokenPath := filepath.Join(cfg.Home, "web-token")
+	if err := os.WriteFile(tokenPath, []byte(webToken), 0o600); err != nil {
+		return fmt.Errorf("writing web token: %w", err)
+	}
+	defer func() { _ = os.Remove(tokenPath) }()
+
+	webLn, err := web.Listen(cfg.WebAddr, cfg.WebNonLoopbackAck)
+	if err != nil {
+		return fmt.Errorf("binding web UI listener: %w", err)
+	}
+	defer func() { _ = webLn.Close() }()
+
+	webHost, webPort, err := net.SplitHostPort(cfg.WebAddr)
+	if err != nil {
+		return fmt.Errorf("parsing web addr: %w", err)
+	}
+	webSrv := &http.Server{Handler: web.NewMux(web.Deps{
+		Client:       cli.NewClient(sockPath),
+		SockPath:     sockPath,
+		Token:        webToken,
+		AllowedHosts: []string{cfg.WebAddr, "localhost:" + webPort, webHost + ":" + webPort},
+	})}
+	webErrCh := make(chan error, 1)
+	go func() { webErrCh <- webSrv.Serve(webLn) }()
+
 	select {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		_ = webSrv.Shutdown(shutdownCtx)
+		_ = agentSrv.Shutdown(shutdownCtx)
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			return err
 		}
@@ -177,6 +234,16 @@ func serve(parentCtx context.Context) error {
 			return nil
 		}
 		return err
+	case err := <-agentErrCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return fmt.Errorf("agent socket server: %w", err)
+	case err := <-webErrCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return fmt.Errorf("web UI server: %w", err)
 	}
 }
 

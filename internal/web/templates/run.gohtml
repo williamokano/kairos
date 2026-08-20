@@ -1,0 +1,33 @@
+{{define "run"}}
+<h1>{{.State.ID}} <span class="status">{{.State.Status}}</span></h1>
+
+<div class="run-detail">
+  <section class="timeline">
+    <h2>Nodes</h2>
+    <table>
+      <thead><tr><th>node</th><th>exec</th><th>status</th><th>attempt</th><th>iteration</th></tr></thead>
+      <tbody>
+      {{range $nodeID, $execs := .State.Executions}}
+        {{range $execs}}
+        <tr>
+          <td>{{$nodeID}}</td><td>{{id .ExecID}}</td><td>{{.Status}}</td><td>{{.Attempt}}</td><td>{{.Iteration}}</td>
+          {{if eq .Status "waiting"}}<td><a href="/t/{{$.State.ID}}/{{$nodeID}}">decision →</a></td>{{end}}
+        </tr>
+        {{end}}
+      {{end}}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="events" hx-ext="sse" sse-connect="/frag/run/{{.State.ID}}/events">
+    <h2>Event log</h2>
+    <div sse-swap="message" hx-get="/frag/run/{{.State.ID}}/timeline" hx-trigger="sse:message" hx-target="this">
+      {{template "frag/timeline" .Events}}
+    </div>
+  </section>
+</div>
+
+<section>
+  <a href="/c/{{.State.ID}}">conversation →</a>
+</section>
+{{end}}

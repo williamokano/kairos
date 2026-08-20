@@ -1,0 +1,91 @@
+{{define "decision"}}
+<h1>DECISION · {{.RunID}} / {{.NodeID}}</h1>
+
+{{if not .EvidenceLoaded}}
+<div class="decision-blocked">
+  <p class="error">evidence failed to load: {{.EvidenceErr}}</p>
+  <p>The decision form is unreachable while evidence is unavailable — this is not a bug, it is
+  10-webui.md's rule: "failed evidence blocks the form."</p>
+  <a href="/t/{{.RunID}}/{{.NodeID}}">retry</a>
+</div>
+{{else}}
+{{$ctx := .Context}}
+<div class="decision" id="decision-root" data-panes="risk,host-effects,changed,findings">
+
+  <section class="pane" data-pane="risk">
+    <h2>RISK</h2>
+    {{if $ctx.Irreversible}}
+      <p class="risk-flag">⚠ irreversible: {{$ctx.Effect}}</p>
+    {{else}}
+      <p>✓ no irreversible effect recorded</p>
+    {{end}}
+    <p>gates:
+      {{range $ctx.Gates}}
+        <span class="{{if .Passed}}pass{{else}}fail{{end}}">{{.GateID}}</span>
+      {{end}}
+    </p>
+    <p>attempts {{$ctx.Attempts}}</p>
+  </section>
+
+  <section class="pane" data-pane="host-effects">
+    <h2>HOST EFFECTS — runs on this machine, unsandboxed</h2>
+    {{if $ctx.Effect}}
+      <p>⚠ {{$ctx.Effect}}</p>
+    {{else}}
+      <p>none</p>
+    {{end}}
+  </section>
+
+  <section class="pane" data-pane="changed">
+    <h2>CHANGED</h2>
+    <p>— (no diff data exposed by the daemon API yet; see <code>kairos diff</code>. The diff viewer
+    itself is out of L20's first pass — see L20-webui.md's Future work.)</p>
+  </section>
+
+  <section class="pane" data-pane="findings">
+    <h2>FINDINGS ({{len $ctx.Findings}})</h2>
+    {{if eq (len $ctx.Findings) 0}}
+      <p>none</p>
+    {{else}}
+    <ul>
+      {{range $ctx.Findings}}
+      <li>
+        {{sev .Severity}} {{.Severity}} {{.ID}} — {{.Message}}
+        {{if or (eq .Severity "high") (eq .Severity "critical")}}
+        <label class="risk-accept">
+          <input type="checkbox" class="risk-accept-checkbox" data-finding-id="{{.ID}}">
+          I accept this risk
+        </label>
+        {{end}}
+      </li>
+      {{end}}
+    </ul>
+    {{end}}
+  </section>
+
+  <section class="pane decision-form" data-pane="decision">
+    <h2>YOUR DECISION</h2>
+    <form hx-post="/t/{{.RunID}}/{{.NodeID}}/answer" hx-target="#decision-root" hx-swap="outerHTML">
+      <input type="hidden" name="nonce" value="{{.FormNonce}}">
+      <fieldset id="decision-fieldset" disabled>
+        <label><input type="radio" name="decision" value="approve" required> approve</label>
+        <label><input type="radio" name="decision" value="request-changes"> request changes</label>
+        <label><input type="radio" name="decision" value="reject"> reject</label>
+        <label>reason <input type="text" name="reason" required></label>
+        <label>type <code>{{.NodeID}}</code> to confirm
+          <input type="text" name="typedWord" autocomplete="off" required>
+        </label>
+        <button type="submit">submit</button>
+      </fieldset>
+      <p class="decision-hint">The form stays disabled until every evidence pane above has been
+      shown on screen and every high/critical finding's risk has been separately accepted — the
+      same rule the TUI enforces by focus order, enforced here by
+      <code>IntersectionObserver</code> (see app.js). This is a client-side UX aid only: the
+      server independently re-validates the reason and the typed word at
+      <code>POST /runs/{id}/approve</code> regardless of what the client allowed through.</p>
+    </form>
+  </section>
+
+</div>
+{{end}}
+{{end}}

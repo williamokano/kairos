@@ -25,6 +25,7 @@ type appCtx struct {
 	starter  DaemonStarter
 	serve    ServeFunc
 	tui      TUIFunc
+	web      WebFunc
 }
 
 // Execute builds and runs the root command, returning the process exit
@@ -33,8 +34,8 @@ type appCtx struct {
 // cmd/kairos/main.go may call os.Exit"). serve is the real daemon boot
 // sequence and tui the real TUI entry point, both injected from
 // cmd/kairos (see serve.go's ServeFunc/TUIFunc docs).
-func Execute(args []string, starter DaemonStarter, serve ServeFunc, tui TUIFunc) int {
-	app := &appCtx{starter: starter, output: "table", serve: serve, tui: tui}
+func Execute(args []string, starter DaemonStarter, serve ServeFunc, tui TUIFunc, web WebFunc) int {
+	app := &appCtx{starter: starter, output: "table", serve: serve, tui: tui, web: web}
 	root := newRootCmd(app)
 	root.SetArgs(args)
 
@@ -128,6 +129,7 @@ func newRootCmd(app *appCtx) *cobra.Command {
 	root.AddCommand(newResumeCmd(app))
 	root.AddCommand(newParkCmd(app))
 	root.AddCommand(newSrcCmd(app))
+	root.AddCommand(newWebCmd(app))
 	return root
 }
 

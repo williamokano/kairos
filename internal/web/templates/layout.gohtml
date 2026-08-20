@@ -1,0 +1,25 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · kairos</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/htmx.min.js"></script>
+<script src="/static/htmx-ext-sse.js"></script>
+</head>
+<body hx-headers='{"Sec-Fetch-Site":"same-origin"}'>
+<header class="topbar">
+  <a href="/" class="brand">kairos</a>
+  <nav>
+    <a href="/runs">runs</a>
+    <a href="/doctor">doctor</a>
+  </nav>
+</header>
+<main>
+{{.Body}}
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
+{{end}}

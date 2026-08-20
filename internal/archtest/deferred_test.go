@@ -16,8 +16,6 @@ func TestArchitecture_processesRecordedBeforeSpawn(t *testing.T) {
 	t.Skip("requires internal/executor/local's real Start(); implemented in L06")
 }
 
-func TestArchitecture_agentSocketRouteSubset(t *testing.T) {
-	t.Skip("requires the narrow agent-facing socket's route table (check-output/artifact " +
-		"stage/ask-human), distinct from L04's admin daemon socket the CLI/TUI/web use; " +
-		"implemented alongside actor invocation (L08 actor sdk + sessions)")
-}
+// TestArchitecture_agentSocketRouteSubset is implemented for real in
+// agent_socket_route_subset_test.go — L20 gives internal/api its narrow,
+// agent-facing route table (internal/api/agentsocket.go).

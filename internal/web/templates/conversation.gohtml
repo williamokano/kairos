@@ -1,0 +1,13 @@
+{{define "conversation"}}
+<h1>#{{id .RunID}}</h1>
+<div class="conversation" id="messages">
+{{range .Messages}}
+  <div class="message"><strong>{{.Role}}</strong> {{.Text}}</div>
+{{end}}
+</div>
+<form hx-post="/c/{{.RunID}}/messages" hx-target="#messages" hx-swap="beforeend">
+  <input type="hidden" name="nonce" value="{{.FormNonce}}">
+  <input name="text" placeholder="message…" required autofocus>
+  <button type="submit">⏎</button>
+</form>
+{{end}}

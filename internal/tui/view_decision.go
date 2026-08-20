@@ -72,7 +72,7 @@ func (m Model) viewDecision() string {
 		}
 		fmt.Fprintf(&b, "  %s %s  %s  %s\n", mark, f.Severity, f.ID, f.Message)
 	}
-	if len(c.hasHighOrCriticalFindings()) > 0 {
+	if len(c.HighOrCritical()) > 0 {
 		b.WriteString("  r  accept risk for the next unaccepted high/critical finding\n")
 	}
 	b.WriteString("\n")

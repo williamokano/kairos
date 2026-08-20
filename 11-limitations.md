@@ -657,6 +657,21 @@ fields; three (duration, attempts, findings) are real today.
 *Revisit:* once real spend metering exists (NL-30's own revisit condition), compare gets a cost row
 for free — the summarization code already walks the full event log per run.
 
+**NL-49 · `POST /runs`'s `Idempotency-Key`/form nonce is not deduplicated server-side.**
+10-webui.md's composer form mints an `Idempotency-Key` (this codebase renders it as a hidden form
+`nonce`) so a double-submit or a retried POST is meant to create one run, not two. The daemon's
+`POST /runs` handler does not read or dedupe on this value — it is wired through and rendered, but
+inert.
+*Blast radius:* a genuine double-submit (double-click, a retried request after a dropped
+response) creates two runs instead of one. Narrow: it requires an actual client-side retry/race,
+not routine use.
+*Mitigations:* none in the daemon today; the web form still renders the field so no client
+change is needed once the daemon side is built.
+*Detection:* two runs with identical `definitionPath`/params and near-identical `StartedAt`.
+*Revisit:* a small, self-contained `internal/eventstore` change — key a short-lived dedupe window
+off the header, independent of L16's `trigger_dedupe` table (that one dedupes trigger-created
+runs by source cursor, a different identity).
+
 **NL-13 · The audit log is not tamper-proof.**
 The agent can write `~/.kairos/kairos.db` unless G6–G9 are enabled.
 *Mitigations:* `guardrails-untouched` covers `~/.kairos/**` in the diff gate (**shipped**), refusing to
