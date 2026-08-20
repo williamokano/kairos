@@ -1,0 +1,10 @@
+name: adopt
+nodes:
+  - id: n1
+    actor: shell
+    restartPolicy: adopt
+    prompt: |
+      echo $$ > "$KAIROS_RUN_DIR/n1.pid"
+      sleep 5
+      echo '{"done":true}' > "$KAIROS_OUTPUT_PATH"
+    output: { done: "bool!" }

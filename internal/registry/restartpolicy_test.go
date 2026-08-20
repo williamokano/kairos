@@ -39,8 +39,8 @@ nodes:
 	}
 }
 
-func TestLoad_rejectsRestartPolicyAdopt(t *testing.T) {
-	_, err := registry.LoadBytes([]byte(`
+func TestLoad_acceptsRestartPolicyAdopt(t *testing.T) {
+	def, err := registry.LoadBytes([]byte(`
 name: t
 nodes:
   - id: n1
@@ -48,7 +48,10 @@ nodes:
     restartPolicy: adopt
     output: { x: "string!" }
 `), "t.yaml")
-	if err == nil {
-		t.Fatal("expected restartPolicy: adopt to be rejected (requires L06)")
+	if err != nil {
+		t.Fatalf("LoadBytes: %v", err)
+	}
+	if def.Nodes[0].RestartPolicy != registry.RestartAdopt {
+		t.Errorf("RestartPolicy = %q, want %q", def.Nodes[0].RestartPolicy, registry.RestartAdopt)
 	}
 }

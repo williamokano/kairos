@@ -13,6 +13,7 @@ import (
 	"github.com/williamokano/kairos/internal/events"
 	"github.com/williamokano/kairos/internal/eventstore"
 	"github.com/williamokano/kairos/internal/executor/local"
+	"github.com/williamokano/kairos/internal/workspace"
 )
 
 // Config assembles an Engine.
@@ -21,9 +22,21 @@ type Config struct {
 	Executor local.Executor
 	BootID   local.BootIDProvider
 	// WorkRoot is where per-node-execution scratch directories are
-	// created: WorkRoot/<runID>/<execID>/. No workspace/clone machinery
-	// exists yet (L06) — this is a bare directory, not a git checkout.
+	// created: WorkRoot/<runID>/<execID>/. A workspace: write node's cwd
+	// is instead WorkRoot/<runID>/repo, a real git clone provisioned by
+	// internal/workspace (see WorkspaceRepo).
 	WorkRoot string
+	// MirrorRoot is where internal/workspace keeps its per-repo bare
+	// mirrors (ADR 0005). Defaults to a "mirrors" sibling of WorkRoot's
+	// parent (i.e. $KAIROS_HOME/mirrors) if empty.
+	MirrorRoot string
+	// WorkspaceRepo is the git repository workspace: write nodes clone
+	// from. Empty means no write-mode node can run — dispatchShellActor
+	// fails that node loudly rather than silently falling back to a bare
+	// scratch dir (AGENTS §4 rule 1). Per-run repo selection, sourced
+	// from the trigger's invocation cwd, is Future work (see
+	// L06-workspaces.md) — this document scopes to one daemon-wide repo.
+	WorkspaceRepo string
 	// KillGrace is the SIGTERM-to-SIGKILL grace period for CmdSignalNode.
 	KillGrace time.Duration
 	// NumShards is how many goroutines partition run processing by
@@ -34,13 +47,15 @@ type Config struct {
 
 // Engine is the advance loop: Store.Subscribe -> domain.Advance -> dispatch.
 type Engine struct {
-	store     eventstore.Store
-	exec      local.Executor
-	bootID    local.BootIDProvider
-	workRoot  string
-	killGrace time.Duration
-	numShards int
-	log       *slog.Logger
+	store         eventstore.Store
+	exec          local.Executor
+	bootID        local.BootIDProvider
+	workRoot      string
+	workspaceRepo string
+	workspaces    *workspace.Manager
+	killGrace     time.Duration
+	numShards     int
+	log           *slog.Logger
 
 	shards []*shard
 
@@ -59,14 +74,20 @@ func New(cfg Config) *Engine {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
+	mirrorRoot := cfg.MirrorRoot
+	if mirrorRoot == "" {
+		mirrorRoot = filepath.Join(filepath.Dir(cfg.WorkRoot), "mirrors")
+	}
 	e := &Engine{
-		store:     cfg.Store,
-		exec:      cfg.Executor,
-		bootID:    cfg.BootID,
-		workRoot:  cfg.WorkRoot,
-		killGrace: cfg.KillGrace,
-		numShards: cfg.NumShards,
-		log:       cfg.Logger,
+		store:         cfg.Store,
+		exec:          cfg.Executor,
+		bootID:        cfg.BootID,
+		workRoot:      cfg.WorkRoot,
+		workspaceRepo: cfg.WorkspaceRepo,
+		workspaces:    workspace.New(mirrorRoot, cfg.WorkRoot, cfg.Executor),
+		killGrace:     cfg.KillGrace,
+		numShards:     cfg.NumShards,
+		log:           cfg.Logger,
 	}
 	e.shards = make([]*shard, e.numShards)
 	for i := range e.shards {

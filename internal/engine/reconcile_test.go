@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"syscall"
 	"testing"
@@ -196,6 +197,110 @@ func TestReconcile_orphanedAliveProcessIsKilledAndMarkedLost(t *testing.T) {
 	if !sawOrphanReaped {
 		t.Error("expected process.orphan.reaped on the system stream")
 	}
+}
+
+// TestReconcile_adoptedAliveProcessIsNotKilledAndItsExitIsFolded proves
+// RestartPolicy: adopt's whole point: reconciliation must not kill an
+// alive orphan whose node opted into adoption, and must fold its real,
+// natural exit through the normal output path once it happens — no
+// node.execution.lost, no retry, since nothing was ever lost.
+func TestReconcile_adoptedAliveProcessIsNotKilledAndItsExitIsFolded(t *testing.T) {
+	st := openStore(t)
+	workRoot := t.TempDir()
+	runID := "run_adopt"
+	defPath := writeAdoptDefinition(t, workRoot)
+	execID := seedExecutingRun(t, st, runID, defPath)
+
+	dir := filepath.Join(workRoot, runID, execID)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	outputPath := filepath.Join(dir, "output.json")
+
+	// A real, short-lived child in its own process group — Probe's
+	// liveness check is a real syscall, independent of any injected
+	// Executor, so adoption needs a genuinely alive-then-dead process to
+	// prove anything.
+	cmd := exec.Command("/bin/sh", "-c", "sleep 0.3; printf '{\"ok\":true}' > \""+outputPath+"\"")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("starting adopted process: %v", err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	// A real orphan gets reparented to init, which reaps it promptly on
+	// exit — kill(pgid, 0) only reports a process dead once it's reaped,
+	// not merely exited. This test owns the child directly (it was never
+	// actually orphaned), so it must reap it itself to model that.
+	go func() { _, _ = cmd.Process.Wait() }()
+	pgid, err := syscall.Getpgid(cmd.Process.Pid)
+	if err != nil {
+		t.Fatalf("Getpgid: %v", err)
+	}
+	writeProcJSON(t, dir, local.ProcRecord{PID: cmd.Process.Pid, PGID: pgid, BootID: "same-boot", StartedAt: time.Now()})
+
+	fake := exectest.NewFake()
+	eng := newTestEngine(t, st, fake, fakeBootID{id: "same-boot"}, workRoot)
+
+	report, err := eng.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if report.OrphansReaped != 0 {
+		t.Errorf("report.OrphansReaped = %d, want 0 — an adopted process must not be reaped", report.OrphansReaped)
+	}
+	if report.Lost != 0 {
+		t.Errorf("report.Lost = %d, want 0 — an adopted process's execution was never lost", report.Lost)
+	}
+	if sigs := fake.Signals(); len(sigs) != 0 {
+		t.Errorf("expected no signal sent to an adopted process, got: %+v", sigs)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	var sawOutputReceived, sawLost bool
+	for time.Now().Before(deadline) {
+		envs, err := st.Read(context.Background(), runID)
+		if err != nil {
+			t.Fatalf("Read: %v", err)
+		}
+		for _, e := range envs {
+			switch e.EventType {
+			case "node.output.received":
+				sawOutputReceived = true
+			case "node.execution.lost":
+				sawLost = true
+			}
+		}
+		if sawOutputReceived {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !sawOutputReceived {
+		t.Fatal("the adopted process's natural exit was never folded into the run")
+	}
+	if sawLost {
+		t.Error("adoption must never record node.execution.lost")
+	}
+}
+
+// writeAdoptDefinition is writeMilestoneLikeDefinition's twin with
+// restartPolicy: adopt declared explicitly.
+func writeAdoptDefinition(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, "adopt-def.yaml")
+	yaml := `
+name: adopt-test
+nodes:
+  - id: n1
+    actor: shell
+    restartPolicy: adopt
+    prompt: "true"
+    output: { ok: "bool!" }
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatalf("writing definition: %v", err)
+	}
+	return path
 }
 
 func writeProcJSON(t *testing.T, dir string, rec local.ProcRecord) {

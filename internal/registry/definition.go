@@ -89,10 +89,11 @@ const (
 	// RestartFailToHuman parks the node (ExecParked{ParkNonIdempotentAtBoot})
 	// rather than guessing. Default when SideEffectFree is unset or false.
 	RestartFailToHuman RestartPolicy = "fail-to-human"
-	// RestartAdopt re-attaches to a surviving process. Requires L06's
-	// reconciliation-loop machinery; parsed but rejected at validate time
-	// in L05 (12-build-plan.md: "adopt in L06, once the reconciliation
-	// loop it plugs into is proven").
+	// RestartAdopt re-attaches to a surviving process instead of killing
+	// it: internal/engine/reconcile.go's VerdictAlive branch leaves an
+	// adopted process running and watches it for its real exit
+	// (12-build-plan.md: "adopt in L06, once the reconciliation loop it
+	// plugs into is proven" — see L06-workspaces.md).
 	RestartAdopt RestartPolicy = "adopt"
 )
 

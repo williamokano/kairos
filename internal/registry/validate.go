@@ -68,12 +68,9 @@ func Validate(doc rawDoc, def Definition) error {
 		}
 
 		switch nd.RestartPolicy {
-		case RestartRerun, RestartFailToHuman:
-			// fine
-		case RestartAdopt:
-			return fmt.Errorf("node %q: restartPolicy: adopt requires L06's reconciliation-loop "+
-				"machinery, which does not exist yet — use rerun (sideEffectFree: true) or "+
-				"fail-to-human (the default)", nd.ID)
+		case RestartRerun, RestartFailToHuman, RestartAdopt:
+			// fine — L06's reconciliation loop now implements adoption
+			// (internal/engine/reconcile.go's VerdictAlive branch).
 		default:
 			return fmt.Errorf("node %q: unknown restartPolicy %q", nd.ID, nd.RestartPolicy)
 		}

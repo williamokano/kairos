@@ -124,10 +124,18 @@ func (e *Engine) reconcileRun(ctx context.Context, runID, bootID string) (reconc
 		case local.VerdictAlive:
 			// Alive but not owned by any live engine (we just booted) —
 			// an orphan by construction, even though its NodeExecution
-			// row is not terminal. L05 does not implement adoption
-			// (L06); kill it, record both facts, then let Advance's own
-			// retry-or-route logic (via NodeExecutionLost) decide rerun
-			// vs park.
+			// row is not terminal. If the node's resolved RestartPolicy
+			// is adopt, leave it running and watch for its real exit
+			// (decision below) instead of killing it.
+			if nd, ok := e.resolveNode(definitionRef, string(nodeID)); ok && nd.RestartPolicy == registry.RestartAdopt {
+				e.wg.Add(1)
+				go func(nd registry.NodeDef, runID, nodeID, execID string, rec local.ProcRecord) {
+					defer e.wg.Done()
+					e.adoptWatch(ctx, nd, runID, nodeID, execID, rec, bootID)
+				}(nd, runID, string(nodeID), exec.ExecID, rec)
+				counts.recovered++
+				continue
+			}
 			if err := e.exec.Signal(ctx, rec.PGID, local.SignalKill); err != nil {
 				e.log.Warn("failed to signal orphaned process group", "pgid", rec.PGID, "err", err)
 			}
@@ -221,14 +229,55 @@ func (e *Engine) recoverLost(ctx context.Context, definitionRef string, state do
 // A load failure defaults to fail-to-human — the safer failure mode when
 // the policy itself can't be determined.
 func (e *Engine) restartPolicyFor(definitionRef, nodeID string) registry.RestartPolicy {
+	nd, ok := e.resolveNode(definitionRef, nodeID)
+	if !ok {
+		return registry.RestartFailToHuman
+	}
+	return nd.RestartPolicy
+}
+
+// resolveNode loads definitionRef and finds nodeID's full NodeDef.
+func (e *Engine) resolveNode(definitionRef, nodeID string) (registry.NodeDef, bool) {
 	def, err := e.loadDefinition(definitionRef)
 	if err != nil {
-		return registry.RestartFailToHuman
+		return registry.NodeDef{}, false
 	}
 	for _, nd := range def.Nodes {
 		if string(nd.ID) == nodeID {
-			return nd.RestartPolicy
+			return nd, true
 		}
 	}
-	return registry.RestartFailToHuman
+	return registry.NodeDef{}, false
+}
+
+// adoptWatch is what RestartPolicy: adopt buys a node that survived a
+// daemon crash: instead of killing the orphan and losing its work,
+// reconciliation leaves it running and this goroutine polls its identity
+// (bootID+pgid, never a bare pid — the same check Probe uses) until it
+// exits, then folds the real outcome through the normal output/failure
+// path exactly as if a live engine had Wait()ed on it — no
+// NodeExecutionLost, no retry, because nothing was ever lost.
+func (e *Engine) adoptWatch(ctx context.Context, nd registry.NodeDef, runID, nodeID, execID string, rec local.ProcRecord, bootID string) {
+	dir := e.scratchDir(runID, execID)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if local.Probe(rec, bootID) == local.VerdictAlive {
+				continue
+			}
+			if body, ok := readOutputIfAny(dir); ok {
+				_ = e.appendNext(ctx, runID, domain.NodeOutputReceived{
+					RunID: runID, NodeID: nodeID, ExecID: execID,
+					SchemaValid: validateOutput(nd, body), Output: body,
+				})
+			} else {
+				_ = e.appendNodeFailed(ctx, runID, nodeID, execID, domain.FailFailure, "adopted process exited with no output.json")
+			}
+			return
+		}
+	}
 }

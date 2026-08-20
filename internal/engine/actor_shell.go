@@ -25,10 +25,28 @@ func (e *Engine) dispatchShellActor(ctx context.Context, nd registry.NodeDef, c 
 	dir := e.scratchDir(c.RunID, c.ExecID)
 	outputPath := filepath.Join(dir, "output.json")
 
+	// workspace: write nodes run inside a real, provisioned git clone
+	// (ADR 0005 via internal/workspace) instead of the bare scratch dir —
+	// L05's decision #7 deferred this to L06. Nodes that don't declare
+	// workspace: write are unaffected: their cwd stays the per-exec
+	// scratch dir, unchanged from L05.
+	workDir := dir
+	if nd.Workspace == registry.WorkspaceWrite {
+		if e.workspaceRepo == "" {
+			return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure,
+				"node declares workspace: write but the engine has no configured WorkspaceRepo")
+		}
+		ws, err := e.workspaces.Provision(ctx, c.RunID, e.workspaceRepo)
+		if err != nil {
+			return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure, "provisioning workspace: "+err.Error())
+		}
+		workDir = ws.Dir
+	}
+
 	started, err := e.exec.Start(ctx, local.ExecSpec{
 		RunID: c.RunID, NodeID: c.NodeID, ExecID: c.ExecID,
 		Dir:     dir,
-		WorkDir: dir,
+		WorkDir: workDir,
 		Env: []string{
 			"HOME=" + dir,
 			"PATH=/usr/bin:/bin:/usr/local/bin",
