@@ -36,6 +36,7 @@ the objections were good and deserve replies rather than silence.
 | [0010](0010-co-equal-surfaces-sse-plus-post.md) | Two co-equal surfaces, and realtime is SSE plus POST | Accepted |
 | [0011](0011-polling-first-connectors.md) | Outbound polling is the default; webhooks are opt-in and BYO-tunnel | Accepted |
 | [0012](0012-daemon-lock-without-flock.md) | The daemon lock is a PID file, not `flock` | **Proposed** |
+| [0013](0013-expr-lang-for-expr-gates.md) | `expr-lang/expr` for the `expr` gate kind | Accepted |
 
 **0009 and 0012 are not `Accepted`.** 0009's promotion condition is written into it: the gate-trust
 consequence — a remote runner reports its own gate exit codes — must be registered as a limitation with a

@@ -409,6 +409,26 @@ built.
 environment, or before the artifact store is exposed to any reader beyond the local `kairos` process
 itself (e.g. a future web UI artifact viewer).
 
+**NL-33 · A node's gate reference with no matching local definition is a silent no-op, not a
+publish error.**
+L10's `internal/engine/gates.go` WARN-logs and skips any `gates: [...]` entry that does not resolve
+against the workflow's own top-level `gates:` map — a deliberate scope-narrowing decision
+(L10-constraints-gates.md's decision #2), since the real resolution (`kairos/baseline` + project +
+repo constitution merge) is L11 scope and rejecting unresolved names today would break
+`03-workflows.md`'s own canonical `fix-issue.yaml` example.
+*Blast radius:* a misspelled gate name (`gates: [no-todso]`) or a gate a workflow author intended
+to define but forgot to declare produces no publish error and no runtime failure — the node simply
+runs with one fewer check than the author believed it had, discoverable only by reading the WARN
+log line or noticing the corresponding `constraint.evaluated` event never appears for that gate ID.
+*Mitigations:* the WARN log is **shipped** and names the exact gate ID and node. A publish-time
+"this gate name doesn't resolve against anything" error is **none** — it cannot be added correctly
+until L11's constitution system exists to be the thing gate names resolve against.
+*Detection:* `kairos serve`'s log at gate-evaluation time; no CLI surface (`kairos check`, `doctor`)
+inspects this yet.
+*Revisit:* when L11 (policy/constitution) ships, every gate name in every published workflow should
+be re-validated against the now-real merged gate library, and a workflow whose gates newly fail to
+resolve should be flagged — not silently left in its current WARN-and-skip state.
+
 **NL-13 · The audit log is not tamper-proof.**
 The agent can write `~/.kairos/kairos.db` unless G6–G9 are enabled.
 *Mitigations:* `guardrails-untouched` covers `~/.kairos/**` in the diff gate (**shipped**), refusing to

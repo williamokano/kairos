@@ -210,6 +210,8 @@ func derefEvent(ev domain.Event) domain.Event {
 		return *e
 	case *domain.LogTruncated:
 		return *e
+	case *domain.ConstraintEvaluated:
+		return *e
 	default:
 		return ev
 	}

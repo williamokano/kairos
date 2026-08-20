@@ -54,6 +54,12 @@ func ApplyDefaults(doc rawDoc) (Definition, error) {
 
 	def.Limits = defaultLimits(doc.typed.Limits)
 
+	gates, err := parseGates(doc.raw)
+	if err != nil {
+		return Definition{}, fmt.Errorf("parsing gates: %w", err)
+	}
+	def.Gates = gates
+
 	nodeMaps := doc.nodeMaps()
 	nodes := make([]NodeDef, 0, len(doc.typed.Nodes))
 	for i, yn := range doc.typed.Nodes {

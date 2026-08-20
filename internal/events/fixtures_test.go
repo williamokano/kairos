@@ -226,6 +226,20 @@ func projectFixture(eventType string, ev domain.Event) error {
 		}
 		_, err = advanceOK(state, ev)
 		return err
+	case "constraint.evaluated":
+		// L10's per-gate audit fact: folded as a no-op, same scenario as
+		// node.gates.evaluated since a gate is evaluated on an Executing
+		// exec that has already received (schema-valid) output.
+		state, err := seedExecuting()
+		if err != nil {
+			return err
+		}
+		state, err = advanceOK(state, domain.NodeOutputReceived{RunID: testRunID, NodeID: "n1", ExecID: "n1#a1.i1", SchemaValid: true})
+		if err != nil {
+			return err
+		}
+		_, err = advanceOK(state, ev)
+		return err
 	default:
 		return fmt.Errorf("no fixture scenario registered for event type %q", eventType)
 	}

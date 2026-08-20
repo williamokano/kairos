@@ -78,6 +78,24 @@ func Validate(doc rawDoc, def Definition) error {
 		if err := checkInputRefs(def.Nodes, i); err != nil {
 			return err
 		}
+
+		// A node's Gates []string is NOT required to resolve against this
+		// document's own top-level gates: map — 05-gates.md's real
+		// resolution merges kairos/baseline (compiled-in) with a project
+		// constitution outside every workspace and a repo-level file
+		// (L11 scope, not built yet). Erroring on every unresolved name
+		// today would reject 03-workflows.md's own canonical example
+		// (gates: [build, lint, no-todos, no-secrets, guardrails-untouched]),
+		// none of which this narrow slice defines. internal/engine's
+		// evaluateGates instead WARN-logs and skips a gate ID with no
+		// local definition — see L10-constraints-gates.md's Documented
+		// decisions.
+	}
+
+	for id, gd := range def.Gates {
+		if gd.Kind == GateCommand && len(gd.Workdir) > 0 && gd.Workdir[0] == '/' {
+			return fmt.Errorf("gates.%s: workdir must be relative to the workspace — absolute paths are rejected (05-gates.md)", id)
+		}
 	}
 
 	return nil

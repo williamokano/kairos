@@ -18,6 +18,55 @@ type Definition struct {
 	ParamsSchema *jsonschema.Schema // compiled from the params: shorthand
 	Nodes        []NodeDef
 	Limits       LimitsDef
+	// Gates is the workflow's own gate library, keyed by ID: a top-level
+	// `gates:` map in the same YAML document, resolved against by every
+	// node's Gates []string list (declared order). L10-constraints-gates.md
+	// documents this as a deliberately narrower stand-in for 05-gates.md's
+	// full constitution.yaml resolution/merge system (kairos/baseline +
+	// project + repo tiers) — that belongs to L11 (policy).
+	Gates map[string]GateDef
+}
+
+// GateKind is one of the phase-0 slice's two implemented gate kinds.
+// 05-gates.md specifies ten; the other eight (file/regex/git-diff/
+// coverage/judged, plus the three non-code domain kinds) are Future work
+// — see L10-constraints-gates.md.
+type GateKind string
+
+const (
+	GateExpr    GateKind = "expr"
+	GateCommand GateKind = "command"
+)
+
+// GateDef is one `gates:` entry — a node references it by ID via its own
+// Gates []string. Fields not relevant to Kind are simply unset; there is
+// no separate per-kind struct because the two kinds share so little
+// shape that a sum type would cost more in indirection than it buys.
+type GateDef struct {
+	ID       string
+	Kind     GateKind
+	Severity string
+	Message  string
+	// Waivable defaults true; only an explicit `waivable: false` sets it
+	// false. There is no waiver-grant mechanism yet (L11's job per
+	// 05-gates.md's "waiver.grant is deny-tier for every non-human
+	// principal" — a human-authored waiver event) — until it exists,
+	// Waivable is enforced as an unconditional invariant: false means
+	// "no code path in this engine can mark this gate's failure as
+	// passed," full stop.
+	Waivable bool
+
+	// Expr is the expr-lang/expr expression, present when Kind == GateExpr.
+	// ADR 0013 documents the library choice and its syntax divergence
+	// from 05-gates.md's literal JSONPath examples.
+	Expr string
+
+	// Command fields, present when Kind == GateCommand.
+	Command        []string
+	Workdir        string        // relative to the node's workspace; absolute paths rejected at validate time
+	ExpectExitCode int           // defaults to 0
+	Timeout        time.Duration // 0 means no timeout
+	FindingsFormat string        // e.g. "golangci-json"; empty means no findings adapter
 }
 
 // NodeDef is one node's full authored shape.

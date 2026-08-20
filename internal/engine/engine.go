@@ -11,6 +11,7 @@ import (
 
 	"github.com/williamokano/kairos/internal/admission"
 	"github.com/williamokano/kairos/internal/artifact"
+	"github.com/williamokano/kairos/internal/constraint"
 	"github.com/williamokano/kairos/internal/domain"
 	"github.com/williamokano/kairos/internal/events"
 	"github.com/williamokano/kairos/internal/eventstore"
@@ -76,7 +77,8 @@ type Engine struct {
 	numShards     int
 	log           *slog.Logger
 
-	admit *admission.Manager
+	admit       *admission.Manager
+	constraints *constraint.Evaluator
 	// pendingMu guards pending — every enqueue/dequeue/drain happens under
 	// it, since a Queued node execution can be re-tried from any shard
 	// goroutine's dispatch call or from another node's release, never
@@ -143,6 +145,7 @@ func New(cfg Config) *Engine {
 		admit:         admission.New(cfg.Admission),
 		claims:        make(map[string]admission.Claims),
 	}
+	e.constraints = constraint.New(cfg.Executor, e.admit)
 	e.shards = make([]*shard, e.numShards)
 	for i := range e.shards {
 		e.shards[i] = newShard(e)

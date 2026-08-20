@@ -57,12 +57,12 @@ func TestRegistry_currentVersionReportsTheNewestRegistered(t *testing.T) {
 	}
 }
 
-func TestBuiltin_registersAllTwentySixEventTypes(t *testing.T) {
+func TestBuiltin_registersAllTwentySevenEventTypes(t *testing.T) {
 	r, err := events.Builtin()
 	if err != nil {
 		t.Fatalf("Builtin: %v", err)
 	}
-	if got := len(r.Types()); got != 26 {
-		t.Errorf("len(Types()) = %d, want 26 (16 from L01 + 4 system-stream events from L05 + 4 run-scoped actor-invocation events from L08 + 2 log-backpressure events from L09)", got)
+	if got := len(r.Types()); got != 27 {
+		t.Errorf("len(Types()) = %d, want 27 (16 from L01 + 4 system-stream events from L05 + 4 run-scoped actor-invocation events from L08 + 2 log-backpressure events from L09 + 1 constraint-evaluation event from L10)", got)
 	}
 }

@@ -58,6 +58,9 @@ var builtins = []builtinEvent{
 	// folded through domain.Advance as no-op audit transitions.
 	{"log.degraded", 1, func() domain.Event { return &domain.LogDegraded{} }},
 	{"log.truncated", 1, func() domain.Event { return &domain.LogTruncated{} }},
+	// L10-introduced, run-scoped per-gate audit fact (event.go's doc
+	// comment) — same posture as the two rows above.
+	{"constraint.evaluated", 1, func() domain.Event { return &domain.ConstraintEvaluated{} }},
 }
 
 // Builtin returns a Registry with every domain.Event type L01 defined,

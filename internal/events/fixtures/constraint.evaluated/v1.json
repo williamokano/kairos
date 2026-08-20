@@ -1,0 +1,11 @@
+{
+  "RunID": "run_01J8QK",
+  "NodeID": "n1",
+  "ExecID": "n1#a1.i1",
+  "GateID": "lint",
+  "Kind": "command",
+  "Passed": false,
+  "ExitCode": 1,
+  "DurationMs": 2140,
+  "Reason": "exit code 1, want 0"
+}

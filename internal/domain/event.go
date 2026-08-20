@@ -343,3 +343,23 @@ type ProcessOrphanReaped struct {
 
 func (ProcessOrphanReaped) EventType() string { return "process.orphan.reaped" }
 func (ProcessOrphanReaped) isEvent()          {}
+
+// ConstraintEvaluated is L10's per-gate audit fact: one evaluation of one
+// declared gate, appended whether it passed or failed (05-gates.md's
+// invariant clause 3 — "result appended before edges" — is satisfied by
+// domain.NodeGatesEvaluated, the aggregate this event does NOT drive by
+// itself; ConstraintEvaluated is evidence, not routing). Like L08's
+// session/repair facts and L09's log-backpressure facts, it carries a
+// RunID and is folded through domain.Advance as a no-op audit transition.
+type ConstraintEvaluated struct {
+	RunID, NodeID, ExecID string
+	GateID                string
+	Kind                  string // "expr" | "command"
+	Passed                bool
+	ExitCode              int // command kind only; 0 for expr
+	DurationMs            int64
+	Reason                string // human-readable verdict detail, always set
+}
+
+func (ConstraintEvaluated) EventType() string { return "constraint.evaluated" }
+func (ConstraintEvaluated) isEvent()          {}
