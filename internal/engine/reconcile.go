@@ -106,6 +106,20 @@ func (e *Engine) reconcileRun(ctx context.Context, runID, bootID string) (reconc
 			continue
 		}
 		exec := execs[len(execs)-1]
+		if exec.Status == domain.ExecWaiting {
+			// L17: a coordinator's join may have missed a child's
+			// terminal transition entirely if the daemon was down when
+			// it happened — handleChildRunFinished only fires for a
+			// LIVE engine watching that child's shard. Catch up here,
+			// the same way reconcileEffectNode catches up a missed
+			// effect probe.
+			if nd, ok := e.resolveNode(definitionRef, string(nodeID)); ok && nd.Wait != nil && len(nd.Wait.On) > 0 && nd.Wait.On[0].Kind == registry.WaitChildRun {
+				if err := e.reconcileSpawnJoin(ctx, runID, string(nodeID), exec.ExecID, true); err != nil {
+					return counts, fmt.Errorf("reconciling spawn join %s/%s: %w", nodeID, exec.ExecID, err)
+				}
+			}
+			continue
+		}
 		if exec.Status != domain.ExecExecuting {
 			continue
 		}

@@ -40,6 +40,12 @@ func requiresOutputSchema(actor string) bool {
 	if actor == "effect" {
 		return false
 	}
+	// "spawn" is L17's coordinator actor: its output is the join
+	// summary internal/engine's dispatchSpawnChildren shapes, never
+	// free-form author output — same posture as "rule"/"effect".
+	if actor == "spawn" {
+		return false
+	}
 	return true
 }
 
@@ -138,7 +144,16 @@ func defaultNode(yn yamlNode, rn raw) (NodeDef, error) {
 		SideEffectFree:  yn.SideEffectFree,
 	}
 	if nd.Workspace == "" {
-		nd.Workspace = WorkspaceRead
+		if yn.Actor == "spawn" {
+			// 03-workflows.md: "a coordinator run declares workspace:
+			// none, so it costs nothing at all" — the fan-out example
+			// never types this field, so it is this document's default
+			// for actor: spawn specifically, not a workflow-wide change
+			// to decision #5's WorkspaceRead default (L17).
+			nd.Workspace = WorkspaceNone
+		} else {
+			nd.Workspace = WorkspaceRead
+		}
 	}
 	if nd.Gates == nil {
 		nd.Gates = []string{}
@@ -181,6 +196,9 @@ func defaultNode(yn yamlNode, rn raw) (NodeDef, error) {
 	}
 	if yn.Join != nil {
 		nd.Join = &JoinDef{Mode: yn.Join.Mode, OnChildFailure: yn.Join.OnChildFailure}
+		if nd.Join.OnChildFailure == "" {
+			nd.Join.OnChildFailure = "fail"
+		}
 	}
 
 	// Dynamic-shaped fields, from the raw map.
@@ -206,6 +224,14 @@ func defaultNode(yn yamlNode, rn raw) (NodeDef, error) {
 
 	if err := defaultWait(&nd, rn); err != nil {
 		return NodeDef{}, err
+	}
+	// 03-workflows.md's fan-out example declares no wait: block at all —
+	// actor: spawn implies wait.on: [{kind: child-run}] the same way
+	// SideEffectFree implies a RestartPolicy above; OnTimeout defaults to
+	// park (a still-joining coordinator is not overdue for escalation,
+	// just not done yet) since the doc gives no join timeout duration.
+	if nd.Actor == "spawn" && nd.Wait == nil {
+		nd.Wait = &WaitDef{On: []WaitSource{{Kind: WaitChildRun}}, OnTimeout: "park"}
 	}
 
 	if err := defaultOutputSchema(&nd, rn); err != nil {

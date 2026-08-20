@@ -43,6 +43,16 @@ type CmdCreateHumanTask struct {
 
 func (CmdCreateHumanTask) isCmd() {}
 
+// CmdSpawnChildren asks the engine to resolve a spawn: node's forEach and
+// create its child runs (L17) — issued alongside CmdEnterWait whenever
+// node.Wait.Kind == WaitChildRun, the same pairing CmdCreateHumanTask uses
+// for WaitHuman.
+type CmdSpawnChildren struct {
+	RunID, NodeID, ExecID string
+}
+
+func (CmdSpawnChildren) isCmd() {}
+
 // CmdArmTimer asks the engine to arm a timer keyed to FireAt.
 // 03-workflows.md: "onTimeout stays a required field, unpublishable without
 // it" — domain's half of that invariant is that it never returns

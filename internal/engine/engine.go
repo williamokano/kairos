@@ -102,6 +102,17 @@ type Config struct {
 	// (see Future work on why "unattended" isn't yet a real per-run
 	// signal). A missing entry means no cap for that effect.
 	UnattendedEffectCeilings map[string]int
+	// Spawner is the only way a spawn: node's dispatch can cause a new
+	// Run to exist (L17) — injected from outside so internal/engine
+	// itself never imports internal/tasksource
+	// (TestArchitecture_runCreationNotReachableFromActors forbids it: a
+	// coordinator's own children are still bound by "every Run traces to
+	// an authorised trigger," the trigger being the coordinator's own
+	// spawn dispatch, which is itself part of an already-authorised
+	// chain — never a bypass reachable from ordinary actor dispatch).
+	// nil means no spawn: node can run; dispatchSpawnChildren fails that
+	// node loudly rather than silently no-oping.
+	Spawner RunSpawner
 }
 
 // Engine is the advance loop: Store.Subscribe -> domain.Advance -> dispatch.
@@ -166,6 +177,21 @@ type Engine struct {
 	effectProviders map[string]effect.Provider
 	dryRun          bool
 	effectCeilings  map[string]int
+
+	spawner RunSpawner
+	// spawnMu serializes spawnNextBatch against itself, engine-wide.
+	// Without it, two goroutines racing to progress the same
+	// coordinator's join (the initial CmdSpawnChildren dispatch and a
+	// child completing almost immediately, or two children completing
+	// close together) can both read the same "not yet spawned" item and
+	// both call RunSpawner.SpawnChild for it — caught, not silently
+	// corrupted, by tasksource.TriggerRun's own dedupe-claim race
+	// detection, but surfaced here as a spurious node failure rather
+	// than the harmless race it actually is. A single engine-wide lock
+	// is simple and correct: a coordinator's join progression is
+	// low-frequency relative to the rest of the engine's dispatch
+	// traffic, so serializing it globally costs nothing worth avoiding.
+	spawnMu sync.Mutex
 }
 
 // pendingStart is one CmdStartNode admission Queued — everything
@@ -219,6 +245,7 @@ func New(cfg Config) *Engine {
 
 		dryRun:         cfg.DryRun,
 		effectCeilings: cfg.UnattendedEffectCeilings,
+		spawner:        cfg.Spawner,
 	}
 	e.effectProviders = cfg.EffectProviders
 	if e.effectProviders == nil {

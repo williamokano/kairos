@@ -32,6 +32,8 @@ func (e *Engine) dispatch(ctx context.Context, definitionRef string, cmd domain.
 		return nil
 	case domain.CmdCreateHumanTask:
 		return e.dispatchCreateHumanTask(ctx, c)
+	case domain.CmdSpawnChildren:
+		return e.dispatchSpawnChildren(ctx, definitionRef, c, false)
 	default:
 		return fmt.Errorf("engine: unknown cmd type %T", cmd)
 	}

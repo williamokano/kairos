@@ -33,6 +33,10 @@ var builtins = []builtinEvent{
 	{"node.execution.started", 1, func() domain.Event { return &domain.NodeExecutionStarted{} }},
 	{"node.output.received", 1, func() domain.Event { return &domain.NodeOutputReceived{} }},
 	{"node.wait.resolved", 1, func() domain.Event { return &domain.NodeWaitResolved{} }},
+	// v2 (L17): Outcome gains "failed" for a spawn/join's onChildFailure:
+	// fail resolution — the schema-only change AGENTS §4 rule 6 permits
+	// via a new version rather than editing v1's schema in place.
+	{"node.wait.resolved", 2, func() domain.Event { return &domain.NodeWaitResolved{} }},
 	{"node.gates.evaluated", 1, func() domain.Event { return &domain.NodeGatesEvaluated{} }},
 	{"node.execution.failed", 1, func() domain.Event { return &domain.NodeExecutionFailed{} }},
 	{"node.execution.interrupted", 1, func() domain.Event { return &domain.NodeExecutionInterrupted{} }},
@@ -83,6 +87,11 @@ var builtins = []builtinEvent{
 	{"effect.compensated", 1, func() domain.Event { return &domain.EffectCompensated{} }},
 	{"effect.confirmation.parked", 1, func() domain.Event { return &domain.EffectConfirmationParked{} }},
 	{"effect.confirmation.answered", 1, func() domain.Event { return &domain.EffectConfirmationAnswered{} }},
+	// L17-introduced, run-scoped spawn/join bookkeeping facts
+	// (event.go's doc comments) — same audit-transition posture as the
+	// effect.* rows above.
+	{"child.runs.planned", 1, func() domain.Event { return &domain.ChildRunsPlanned{} }},
+	{"child.run.spawned", 1, func() domain.Event { return &domain.ChildRunSpawned{} }},
 }
 
 // Builtin returns a Registry with every domain.Event type L01 defined,

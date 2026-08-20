@@ -132,4 +132,20 @@ func (s *shard) process(ctx context.Context, env events.Envelope) {
 			s.engine.compensateRun(context.Background(), runID)
 		}(env.StreamID)
 	}
+
+	// L17: this run may be a spawned child — on ANY terminal transition
+	// (success included), give its coordinator's join a chance to
+	// progress or resolve. Cheap no-op for the overwhelming majority of
+	// runs, which were never spawned (handleChildRunFinished's first
+	// step is reading this run's own TriggerRef and returning immediately
+	// on a mismatched prefix).
+	if !before.Status.Terminal() && after.Status.Terminal() {
+		runID := env.StreamID
+		status := after.Status
+		s.engine.wg.Add(1)
+		go func() {
+			defer s.engine.wg.Done()
+			s.engine.handleChildRunFinished(context.Background(), runID, status)
+		}()
+	}
 }

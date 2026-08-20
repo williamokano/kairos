@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["RunID", "NodeID", "ExecID", "Items"],
+  "properties": {
+    "RunID": { "type": "string", "minLength": 1 },
+    "NodeID": { "type": "string", "minLength": 1 },
+    "ExecID": { "type": "string", "minLength": 1 },
+    "Items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["Index"],
+        "properties": {
+          "Index": { "type": "integer" },
+          "Params": {}
+        }
+      }
+    }
+  }
+}

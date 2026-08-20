@@ -109,6 +109,12 @@ func serve(parentCtx context.Context) error {
 		BaseRef:                  cfg.BaseRef,
 		DryRun:                   cfg.DryRun,
 		UnattendedEffectCeilings: unattendedEffectCeilings(cfg.MaxUnattendedPRs),
+		Spawner: &engineSpawner{
+			store: store,
+			limits: tasksource.QueueLimits{
+				MaxQueued: cfg.TriggerMaxQueued, MaxOpenDecisions: cfg.TriggerMaxOpenDecisions,
+			},
+		},
 	})
 
 	// Reconciliation must complete before the API starts serving —

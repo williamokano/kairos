@@ -119,6 +119,11 @@ type WaitOutcome string
 const (
 	WaitMatched  WaitOutcome = "matched"
 	WaitTimedOut WaitOutcome = "timed-out"
+	// WaitFailed is L17's addition: a spawn/join's children finished with
+	// at least one failure under onChildFailure: fail (the default) — a
+	// genuine failure, distinct from a schema problem or a timeout, so it
+	// gets its own outcome rather than being squeezed into SchemaValid.
+	WaitFailed WaitOutcome = "failed"
 )
 
 // NodeWaitResolved is the Waiting-path outcome. Outcome=Matched carries an
@@ -579,3 +584,37 @@ type SecretAccessed struct {
 
 func (SecretAccessed) EventType() string { return "secret.accessed" }
 func (SecretAccessed) isEvent()          {}
+
+// ChildPlanItem is one resolved forEach element a spawn: node will (or
+// has) turned into a child run.
+type ChildPlanItem struct {
+	Index  int
+	Params json.RawMessage
+}
+
+// ChildRunsPlanned records a spawn: node's forEach resolution — the full,
+// fixed set of children it intends to create — once, at CmdSpawnChildren
+// dispatch time (L17). Run-scoped, never folded by Advance (like
+// ConstraintEvaluated): it is bookkeeping the engine and reconciliation
+// read back from the log, not state routing cares about.
+type ChildRunsPlanned struct {
+	RunID, NodeID, ExecID string
+	Items                 []ChildPlanItem
+}
+
+func (ChildRunsPlanned) EventType() string { return "child.runs.planned" }
+func (ChildRunsPlanned) isEvent()          {}
+
+// ChildRunSpawned records one planned item actually turned into a real
+// child Run (L17) — the engine appends one of these per successful spawn,
+// which is what lets reconciliation and the completion handler know which
+// planned items are already spawned versus still queued under
+// strategy: bounded(N)'s progressive refill.
+type ChildRunSpawned struct {
+	RunID, NodeID, ExecID string
+	Index                 int
+	ChildRunID            string
+}
+
+func (ChildRunSpawned) EventType() string { return "child.run.spawned" }
+func (ChildRunSpawned) isEvent()          {}

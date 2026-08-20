@@ -2,6 +2,8 @@ package registry
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -64,6 +66,26 @@ func Validate(doc rawDoc, def Definition) error {
 		// several (L12-effects-compensation.md's Documented decisions).
 		if nd.Actor == "effect" && len(nd.Effects) != 1 {
 			return fmt.Errorf("node %q: actor \"effect\" requires exactly one entry in effects (got %d)", nd.ID, len(nd.Effects))
+		}
+
+		// actor: spawn is the coordinator's own dispatch kind (L17) — the
+		// node IS the fan-out, not a generic actor that happens to
+		// declare a spawn: block among other fields. 03-workflows.md's
+		// own fanout example omits actor: entirely; requiring it here is
+		// a deliberate, documented deviation (L17-child-runs.md's
+		// Documented decisions) that keeps every node dispatched through
+		// the same actor-keyed switch decision #5 already established,
+		// rather than special-casing "no actor" through defaults,
+		// requiresOutputSchema, and runActorDispatch.
+		if nd.Actor == "spawn" {
+			if nd.Spawn == nil {
+				return fmt.Errorf("node %q: actor \"spawn\" requires a spawn: block", nd.ID)
+			}
+			if err := validateSpawnDef(nd); err != nil {
+				return err
+			}
+		} else if nd.Spawn != nil {
+			return fmt.Errorf("node %q: spawn: is only valid on actor \"spawn\" nodes", nd.ID)
 		}
 
 		if nd.Wait != nil {
@@ -133,6 +155,51 @@ func Validate(doc rawDoc, def Definition) error {
 		}
 	}
 
+	return nil
+}
+
+// boundedStrategyPattern matches strategy: bounded(N) — the only spawn
+// strategy 03-workflows.md's fan-out section describes; anything else is
+// rejected at publish time rather than silently defaulting to unbounded
+// (L17-child-runs.md's Documented decisions).
+var boundedStrategyPattern = regexp.MustCompile(`^bounded\((\d+)\)$`)
+
+// validateSpawnDef checks a spawn: block's fields once actor == "spawn"
+// is confirmed present — the fields 03-workflows.md's fan-out example
+// names, and nothing beyond them.
+func validateSpawnDef(nd NodeDef) error {
+	sd := nd.Spawn
+	if sd.Workflow == "" {
+		return fmt.Errorf("node %q: spawn.workflow is required", nd.ID)
+	}
+	if sd.ForEach == "" {
+		return fmt.Errorf("node %q: spawn.forEach is required", nd.ID)
+	}
+	if !strings.HasPrefix(sd.ForEach, "$.outputs.") {
+		return fmt.Errorf("node %q: spawn.forEach must be a \"$.outputs.<nodeID>...\" reference", nd.ID)
+	}
+	m := boundedStrategyPattern.FindStringSubmatch(sd.Strategy)
+	if m == nil {
+		return fmt.Errorf("node %q: spawn.strategy %q is not \"bounded(N)\" — the only strategy this document implements", nd.ID, sd.Strategy)
+	}
+	if n, _ := strconv.Atoi(m[1]); n < 1 {
+		return fmt.Errorf("node %q: spawn.strategy bounded(N) requires N >= 1", nd.ID)
+	}
+	if sd.InheritWorkspace != "clone" {
+		return fmt.Errorf("node %q: spawn.inheritWorkspace %q is not \"clone\" — the only mode this document implements (a child always inherits the daemon's own WorkspaceRepo/mirror)", nd.ID, sd.InheritWorkspace)
+	}
+	if nd.Join == nil {
+		return fmt.Errorf("node %q: actor \"spawn\" requires a join: block", nd.ID)
+	}
+	if nd.Join.Mode != "waitAll" {
+		return fmt.Errorf("node %q: join.mode %q is not \"waitAll\" — the only mode this document implements", nd.ID, nd.Join.Mode)
+	}
+	switch nd.Join.OnChildFailure {
+	case "", "fail", "degrade":
+		// "" defaults to "fail" in defaultNode.
+	default:
+		return fmt.Errorf("node %q: join.onChildFailure %q is not \"fail\" or \"degrade\"", nd.ID, nd.Join.OnChildFailure)
+	}
 	return nil
 }
 

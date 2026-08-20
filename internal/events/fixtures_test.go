@@ -263,6 +263,16 @@ func projectFixture(eventType string, ev domain.Event) error {
 		}
 		_, err = advanceOK(state, ev)
 		return err
+	case "child.runs.planned", "child.run.spawned":
+		// L17's spawn/join bookkeeping facts: folded as a no-op, same
+		// scenario as the L12 row above — a coordinator's plan/spawn
+		// records both concern a node that has already started.
+		state, err := seedPending()
+		if err != nil {
+			return err
+		}
+		_, err = advanceOK(state, ev)
+		return err
 	case "effect.confirmation.parked":
 		// L12's real park transition: legal against a still-Pending exec
 		// (checkEffects runs before NodeExecutionStarted).

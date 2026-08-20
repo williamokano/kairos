@@ -58,13 +58,17 @@ func Advance(state RunState, ev Event, now time.Time) (RunState, []Cmd, error) {
 	case LLMSessionStarted, SessionResumeFailed, SessionCostUnavailable, OutputRepairAttempted,
 		LogDegraded, LogTruncated, ConstraintEvaluated,
 		WaiverGranted, EffectConfirmationRequested, EffectConfirmed,
-		EffectAttempted, EffectApplied, EffectFailed, EffectUnknown, EffectSimulated, EffectCompensated:
+		EffectAttempted, EffectApplied, EffectFailed, EffectUnknown, EffectSimulated, EffectCompensated,
+		ChildRunsPlanned, ChildRunSpawned:
 		// L08's audit-only facts, L09's log-backpressure facts, L10's
 		// per-gate ConstraintEvaluated, L11's waiver/effect-confirmation
-		// facts, and L12's effect state-machine facts: they record
-		// something true about a NodeExecution's actor invocation without
-		// moving it through any state the run's routing cares about
-		// (ExecStatus is untouched) — EffectUnknown deliberately included:
+		// facts, L12's effect state-machine facts, and L17's spawn
+		// bookkeeping (the plan and each spawn, as they happen — the
+		// join's actual outcome is folded through the ordinary
+		// NodeWaitResolved path, same as every other Waiting node): they
+		// record something true about a NodeExecution's actor invocation
+		// without moving it through any state the run's routing cares
+		// about (ExecStatus is untouched) — EffectUnknown deliberately included:
 		// leaving the owning NodeExecution non-terminal (never folding it
 		// to Failed/Succeeded here) IS "blocks the run reaching Failed",
 		// achieved by absence of a fold, not by a special-cased status.
@@ -201,6 +205,13 @@ func advanceNodeWaitResolved(state RunState, e NodeWaitResolved, now time.Time) 
 	}
 	if e.Outcome == WaitTimedOut {
 		return handleWaitTimeout(state, exec, node)
+	}
+	if e.Outcome == WaitFailed {
+		// L17: a spawn/join whose children finished with
+		// onChildFailure: fail (the default) resolves the coordinator's
+		// own wait this way — not a schema problem, so it does not go
+		// through the SchemaValid=false path below.
+		return handleFailureOutcome(state, exec, FailFailure, "one or more spawned child runs failed", now)
 	}
 	if !e.SchemaValid {
 		return handleFailureOutcome(state, exec, FailSchemaInvalid, "schema validation failed", now)
@@ -503,6 +514,9 @@ func dispatchExec(state RunState, node Node, attempt, iteration int, priorExecID
 		cmds := []Cmd{CmdEnterWait{RunID: state.ID, NodeID: string(node.ID), ExecID: id, Wait: *node.Wait}}
 		if node.Wait.Kind == WaitHuman {
 			cmds = append(cmds, CmdCreateHumanTask{RunID: state.ID, NodeID: string(node.ID), ExecID: id})
+		}
+		if node.Wait.Kind == WaitChildRun {
+			cmds = append(cmds, CmdSpawnChildren{RunID: state.ID, NodeID: string(node.ID), ExecID: id})
 		}
 		if node.Wait.TimeoutAt != nil {
 			cmds = append(cmds, CmdArmTimer{RunID: state.ID, NodeID: string(node.ID), ExecID: id, FireAt: *node.Wait.TimeoutAt})

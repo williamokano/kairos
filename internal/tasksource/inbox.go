@@ -68,7 +68,7 @@ func RunInbox(ctx context.Context, cfg InboxConfig, store eventstore.Store) erro
 		return fmt.Errorf("watching inbox dir: %w", err)
 	}
 
-	ib := &inboxWatcher{cfg: cfg, store: store, log: log, pending: map[string]*time.Timer{}}
+	ib := &inboxWatcher{ctx: ctx, cfg: cfg, store: store, log: log, pending: map[string]*time.Timer{}}
 
 	pollTicker := time.NewTicker(cfg.PollFallback)
 	defer pollTicker.Stop()
@@ -77,6 +77,22 @@ func RunInbox(ctx context.Context, cfg InboxConfig, store eventstore.Store) erro
 	for {
 		select {
 		case <-ctx.Done():
+			// A quiet-period timer already armed by noteCandidate keeps
+			// running independently of this loop (time.AfterFunc, not a
+			// select case here) — stop every one that hasn't fired yet,
+			// then wait for any that are already mid-flight, so no
+			// pickup (and its TriggerRun/store.AppendIf call) can ever
+			// run after this function returns and the caller is free to
+			// close the store.
+			ib.mu.Lock()
+			for path, timer := range ib.pending {
+				if timer.Stop() {
+					ib.wg.Done()
+				}
+				delete(ib.pending, path)
+			}
+			ib.mu.Unlock()
+			ib.wg.Wait()
 			return nil
 		case ev, ok := <-watcher.Events:
 			if !ok {
@@ -95,12 +111,17 @@ func RunInbox(ctx context.Context, cfg InboxConfig, store eventstore.Store) erro
 }
 
 type inboxWatcher struct {
+	ctx   context.Context
 	cfg   InboxConfig
 	store eventstore.Store
 	log   *slog.Logger
 
 	mu      sync.Mutex
 	pending map[string]*time.Timer
+	// wg tracks every quiet-period timer that has been armed but not yet
+	// either stopped or run to completion — RunInbox's shutdown path
+	// waits on it so no pickup can outlive the watcher.
+	wg sync.WaitGroup
 }
 
 func (ib *inboxWatcher) scan() {
@@ -122,12 +143,22 @@ func (ib *inboxWatcher) noteCandidate(path string) {
 	ib.mu.Lock()
 	defer ib.mu.Unlock()
 	if t, ok := ib.pending[path]; ok {
-		t.Stop()
+		if t.Stop() {
+			// Successfully stopped before firing — its wg.Add is never
+			// going to be balanced by the callback's wg.Done, since the
+			// callback will now never run.
+			ib.wg.Done()
+		}
 	}
+	ib.wg.Add(1)
 	ib.pending[path] = time.AfterFunc(ib.cfg.QuietPeriod, func() {
+		defer ib.wg.Done()
 		ib.mu.Lock()
 		delete(ib.pending, path)
 		ib.mu.Unlock()
+		if ib.ctx.Err() != nil {
+			return
+		}
 		ib.pickup(path)
 	})
 }
@@ -163,7 +194,7 @@ func (ib *inboxWatcher) pickup(path string) {
 		"budget":   frontMatter["budget"],
 	})
 
-	runID, created, err := TriggerRun(context.Background(), ib.store, dedupeKey, inboxSourceID, pickupID,
+	runID, created, err := TriggerRun(ib.ctx, ib.store, dedupeKey, inboxSourceID, pickupID,
 		CreateRunRequest{
 			DefinitionRef: flow, Params: params,
 			TriggerRef: "inbox:" + dedupeKey, Actor: "trigger:inbox",

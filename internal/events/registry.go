@@ -238,6 +238,10 @@ func derefEvent(ev domain.Event) domain.Event {
 		return *e
 	case *domain.EffectConfirmationAnswered:
 		return *e
+	case *domain.ChildRunsPlanned:
+		return *e
+	case *domain.ChildRunSpawned:
+		return *e
 	default:
 		return ev
 	}
