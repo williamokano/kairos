@@ -252,6 +252,39 @@ func projectFixture(eventType string, ev domain.Event) error {
 		}
 		_, err = advanceOK(state, ev)
 		return err
+	case "effect.attempted", "effect.applied", "effect.failed", "effect.unknown",
+		"effect.simulated", "effect.compensated":
+		// L12's effect state-machine facts: folded as a no-op, same
+		// scenario as the L11 row above — an actor: effect node's
+		// attempt/outcome both concern a node that has already started.
+		state, err := seedPending()
+		if err != nil {
+			return err
+		}
+		_, err = advanceOK(state, ev)
+		return err
+	case "effect.confirmation.parked":
+		// L12's real park transition: legal against a still-Pending exec
+		// (checkEffects runs before NodeExecutionStarted).
+		state, err := seedPending()
+		if err != nil {
+			return err
+		}
+		_, err = advanceOK(state, ev)
+		return err
+	case "effect.confirmation.answered":
+		// L12's real resume/decline transition: legal only once the exec
+		// has actually been parked.
+		state, err := seedPending()
+		if err != nil {
+			return err
+		}
+		state, err = advanceOK(state, domain.EffectConfirmationParked{RunID: testRunID, NodeID: "n1", ExecID: "n1#a1.i1", Effect: "gh.pr.create"})
+		if err != nil {
+			return err
+		}
+		_, err = advanceOK(state, ev)
+		return err
 	default:
 		return fmt.Errorf("no fixture scenario registered for event type %q", eventType)
 	}

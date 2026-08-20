@@ -43,6 +43,13 @@ var ErrHumanDecisionReasonRequired = fmt.Errorf("engine: a reason is required fo
 // typed decision word.
 var ErrHumanDecisionTypedWordRequired = fmt.Errorf("engine: this decision requires typing the node id as the confirming word (wait.weight: type)")
 
+// ErrNotAWaitHumanNode is AnswerHumanTask's signal that the parked node
+// isn't a wait: human node — Approve (effect.go's counterpart) uses this
+// to fall through to AnswerEffectConfirmation instead, so `kairos
+// approve` stays the one CLI verb for every kind of parked confirmation
+// rather than growing a second, effect-specific verb.
+var ErrNotAWaitHumanNode = fmt.Errorf("engine: node is not a wait: human node")
+
 // AnswerHumanTask resolves an ExecWaiting(human) NodeExecution: it is the
 // one and only path HumanTaskAnswered is ever appended from, so every
 // anti-rubber-stamp rule this document builds lives here, not scattered
@@ -82,7 +89,7 @@ func (e *Engine) AnswerHumanTask(ctx context.Context, runID, nodeID string, ans 
 		return fmt.Errorf("node %s not found in definition for run %s", nodeID, runID)
 	}
 	if nd.Wait == nil || !waitsOnHuman(nd.Wait) {
-		return fmt.Errorf("engine: node %s is not a wait: human node", nodeID)
+		return fmt.Errorf("%w: %s", ErrNotAWaitHumanNode, nodeID)
 	}
 
 	if err := checkDecisionWeight(nd, nodeID, ans); err != nil {

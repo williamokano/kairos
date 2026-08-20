@@ -115,4 +115,21 @@ func (s *shard) process(ctx context.Context, env events.Envelope) {
 			s.engine.log.Error("dispatch failed", "runID", env.StreamID, "err", err)
 		}
 	}
+
+	// L12: a run that just newly reached Cancelled or Failed may have
+	// already-applied effects (git.push, gh.pr.create) needing reverse-
+	// order compensation — 05-gates.md's compensation contract. Checked
+	// by comparing before/after so this fires exactly once, on the
+	// transition, not on every subsequent event this now-terminal run's
+	// stream will never actually receive. Runs in a goroutine: a real
+	// `gh pr close` call must not block this shard's processing of every
+	// other run it owns.
+	if !before.Status.Terminal() && after.Status.Terminal() &&
+		(after.Status == domain.RunCancelledS || after.Status == domain.RunFailed) {
+		s.engine.wg.Add(1)
+		go func(runID string) {
+			defer s.engine.wg.Done()
+			s.engine.compensateRun(context.Background(), runID)
+		}(env.StreamID)
+	}
 }

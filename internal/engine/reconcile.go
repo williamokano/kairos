@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/williamokano/kairos/internal/domain"
+	"github.com/williamokano/kairos/internal/effect"
 	"github.com/williamokano/kairos/internal/executor/local"
 	"github.com/williamokano/kairos/internal/registry"
 )
@@ -109,6 +110,16 @@ func (e *Engine) reconcileRun(ctx context.Context, runID, bootID string) (reconc
 			continue
 		}
 
+		if nd, ok := e.resolveNode(definitionRef, string(nodeID)); ok && nd.Actor == "effect" {
+			n, err := e.reconcileEffectNode(ctx, runID, string(nodeID), exec)
+			if err != nil {
+				return counts, fmt.Errorf("reconciling effect node %s/%s: %w", nodeID, exec.ExecID, err)
+			}
+			counts.recovered += n.recovered
+			counts.lost += n.lost
+			continue
+		}
+
 		dir := e.scratchDir(runID, exec.ExecID)
 		rec, hasRec, err := local.ReadProcRecord(dir)
 		if err != nil {
@@ -187,6 +198,147 @@ func (e *Engine) reconcileRun(ctx context.Context, runID, bootID string) (reconc
 	}
 
 	return counts, nil
+}
+
+// reconcileEffectNode implements 06-durability.md's "for each Effect in
+// Attempted with no result" recovery step: an actor: effect node's
+// EXECUTING status is never resolved by process-liveness probing (a git
+// or gh subprocess has almost certainly already exited by the time a
+// restart happens — what matters is whether the EXTERNAL mutation
+// landed, not whether the local process is still running), so this
+// bypasses the generic proc-record verdict switch entirely.
+func (e *Engine) reconcileEffectNode(ctx context.Context, runID, nodeID string, exec domain.NodeExecution) (reconcileCounts, error) {
+	var counts reconcileCounts
+
+	envs, err := e.store.Read(ctx, runID)
+	if err != nil {
+		return counts, fmt.Errorf("reading stream %s: %w", runID, err)
+	}
+	var attempted *domain.EffectAttempted
+	resolved := false
+	for _, env := range envs {
+		switch ev := env.Event.(type) {
+		case domain.EffectAttempted:
+			if ev.ExecID == exec.ExecID {
+				a := ev
+				attempted = &a
+				resolved = false
+			}
+		case domain.EffectApplied:
+			if ev.ExecID == exec.ExecID {
+				resolved = true
+			}
+		case domain.EffectFailed:
+			if ev.ExecID == exec.ExecID {
+				resolved = true
+			}
+		}
+	}
+
+	if attempted == nil {
+		// Never got as far as recording EffectAttempted — nothing was
+		// externally attempted, so this is a plain crash-before-work-
+		// started case, safe to treat like any other Lost node (retry
+		// from scratch via the normal domain retry-or-route ladder).
+		definitionRef, err := e.firstEventDefinitionRef(ctx, runID)
+		if err != nil {
+			return counts, err
+		}
+		state, ok, err := e.store.GetRunState(ctx, runID)
+		if err != nil || !ok {
+			return counts, err
+		}
+		if err := e.recoverLost(ctx, definitionRef, state, runID, nodeID, exec); err != nil {
+			return counts, err
+		}
+		counts.lost++
+		return counts, nil
+	}
+	if resolved {
+		// Attempted AND already resolved (a live run that folded the
+		// outcome, then crashed before EngineStopped) — nothing to do.
+		return counts, nil
+	}
+
+	nd, ok := e.resolveNode(e.mustDefinitionRef(ctx, runID), nodeID)
+	if !ok {
+		return counts, fmt.Errorf("node %s not found for effect reconciliation", nodeID)
+	}
+	provider, ok := e.effectProviders[attempted.Effect]
+	if !ok {
+		return counts, fmt.Errorf("no builtin provider registered for effect %q", attempted.Effect)
+	}
+	workDir, err := e.workspaceRepoDirFor(ctx, runID)
+	if err != nil {
+		return counts, err
+	}
+	req := effect.Request{
+		RunID: runID, NodeID: nodeID, ExecID: exec.ExecID,
+		Effect: attempted.Effect, IdempotencyKey: attempted.IdempotencyKey,
+		WorkDir: workDir, Dir: e.scratchDir(runID, exec.ExecID),
+		Args: nd.With,
+	}
+	res, ok, err := provider.Probe(ctx, req)
+	if err != nil {
+		return counts, fmt.Errorf("probing effect %q: %w", attempted.Effect, err)
+	}
+	if !ok {
+		// The provider genuinely cannot say — record effect.unknown and
+		// leave the NodeExecution non-terminal. This IS "blocks the run
+		// reaching Failed": no NodeExecutionFailed/NodeOutputReceived
+		// fold happens, so the RunState can never reach a terminal
+		// status while this row stays Executing (domain.RunState.Terminal
+		// is derived from every NodeExecution's own terminality).
+		if err := e.appendNext(ctx, runID, domain.EffectUnknown{RunID: runID, NodeID: nodeID, ExecID: exec.ExecID, Effect: attempted.Effect}); err != nil {
+			return counts, err
+		}
+		return counts, nil
+	}
+
+	switch res.Outcome {
+	case effect.Applied:
+		if err := e.appendNext(ctx, runID, domain.EffectApplied{RunID: runID, NodeID: nodeID, ExecID: exec.ExecID, Effect: attempted.Effect, ExternalRef: res.ExternalRef}); err != nil {
+			return counts, err
+		}
+		out, err := json.Marshal(map[string]any{"externalRef": res.ExternalRef})
+		if err != nil {
+			return counts, fmt.Errorf("marshalling effect output: %w", err)
+		}
+		ev := domain.NodeOutputReceived{RunID: runID, NodeID: nodeID, ExecID: exec.ExecID, SchemaValid: true, Output: json.RawMessage(out)}
+		if err := e.appendAndFoldBeforeStart(ctx, runID, ev); err != nil {
+			return counts, err
+		}
+	case effect.Failed:
+		if err := e.appendNext(ctx, runID, domain.EffectFailed{RunID: runID, NodeID: nodeID, ExecID: exec.ExecID, Effect: attempted.Effect, Reason: res.Reason}); err != nil {
+			return counts, err
+		}
+		ev := domain.NodeExecutionFailed{RunID: runID, NodeID: nodeID, ExecID: exec.ExecID, Reason: domain.FailFailure, Message: res.Reason}
+		if err := e.appendAndFoldBeforeStart(ctx, runID, ev); err != nil {
+			return counts, err
+		}
+	}
+	counts.recovered++
+	return counts, nil
+}
+
+// appendAndFoldBeforeStart captures runID's state, appends ev, and folds
+// +dispatches it against the PRE-append state — Reconcile always runs
+// before Start's live Subscribe loop exists, so nothing else will ever
+// fold+dispatch ev's resulting Cmds otherwise (see parkForEffectConfirmation's
+// doc comment in effect.go on why the state must be captured before, not
+// after, the append).
+func (e *Engine) appendAndFoldBeforeStart(ctx context.Context, runID string, ev domain.Event) error {
+	preState, ok, err := e.store.GetRunState(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("loading run state for %s: %w", runID, err)
+	}
+	if !ok {
+		preState = domain.RunState{}
+	}
+	if err := e.appendNext(ctx, runID, ev); err != nil {
+		return err
+	}
+	return e.foldAndDispatch(ctx, runID, preState, ev)
 }
 
 // recoverLost appends NodeExecutionLost for exec and, unless the node's

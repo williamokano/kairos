@@ -111,6 +111,8 @@ func (e *Engine) runActorDispatch(ctx context.Context, nd registry.NodeDef, c do
 		return e.dispatchShellActor(ctx, nd, c)
 	case "claude", "codex", "gemini", "local":
 		return e.dispatchLLMActor(ctx, nd, c, actor)
+	case "effect":
+		return e.dispatchEffectActor(ctx, nd, c)
 	default:
 		// human/builtin.* actors are out of L08's scope too — the engine
 		// fails the node honestly rather than hanging forever.

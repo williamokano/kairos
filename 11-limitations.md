@@ -451,28 +451,12 @@ exist yet either, since L12 (effects + compensation) owns real effect dispatch.
 *Revisit:* when L12 builds the real builtin effect call sites (git.push, gh.pr.create, etc.), wire
 their actual arguments through `Decide` and add the sub-pattern matching this entry currently lacks.
 
-**NL-35 · A confirm-tier effect's block is a synchronous, this-attempt-only check — not
-05-gates.md's full pause-the-run-and-resume-on-a-human-answer flow.**
-`internal/engine.checkEffects` (L11) requires an `EffectConfirmed` fact to already exist for
-(RunID, NodeID, Effect) at the moment a node is dispatched; if none does, the node fails immediately
-(after recording `EffectConfirmationRequested` for audit) rather than parking the run, releasing every
-permit, and resuming automatically once a human answers. A human who answers *after* the node has
-already failed gets nothing — there is no retry.
-*Blast radius:* a real confirm-tier effect (e.g. `gh.pr.create: { confirm: each }`) makes any node
-declaring it fail on every run unless a caller pre-records the confirmation via
-`GrantEffectConfirmation` ahead of time, which requires knowing in advance that the confirmation will
-be needed — the interactive "the engine goes idle, a desktop notification fires, you answer, the run
-resumes" experience 05-gates.md describes does not exist.
-*Mitigations:* the tier decision and the audit trail (`EffectConfirmationRequested`/`EffectConfirmed`)
-are real and tested (**shipped** — `internal/engine/policy_test.go`); the actual pause-and-resume flow
-is **none**. Building it needs a new "waiting to start" state-machine addition to `internal/domain` (a
-fourth wait concept, since `ExecWaiting` today only serves `wait:`-declared nodes post-execution) —
-scoped explicitly to L12 (effects + compensation, which owns real effect dispatch) and L13 (the human
-queue), not built here.
-*Detection:* `effect.confirmation.requested` with no matching `effect.confirmed` in a run's stream,
-followed immediately by `node.execution.failed{reason: policy-denied}`.
-*Revisit:* when L12/L13 land, replace `checkEffects`'s synchronous check with the real pause-and-resume
-machinery this entry describes.
+**NL-35 · RESOLVED by L12.** A confirm-tier effect's block used to be a synchronous, this-attempt-only
+check (L11) rather than 05-gates.md's pause-and-resume flow. `internal/engine.checkEffects` now parks
+the node for real (`EffectConfirmationParked`, `ExecWaiting`) via two new `internal/domain` transitions
+(`EffectConfirmationParked`/`EffectConfirmationAnswered`), and `kairos approve` (`Engine.Approve`)
+resumes it — see `L12-effects-compensation.md`'s Documented decisions. Superseded, not deleted, per
+AGENTS §8: the original text described the gap L12 closed.
 
 **NL-36 · Judged-gate quorum invokes the same single configured LLM binary for every named judge
 actor — not literally different CLIs.**
@@ -490,6 +474,75 @@ mapping) that does not exist anywhere in the registry or engine config today.
 *Revisit:* when a real per-actor CLI resolution mechanism is needed for any reason (this, or a
 non-judged multi-CLI use case), wire `Judge`'s binary choice off `req.Actor` instead of the single
 `e.llmBinary`.
+
+**NL-37 · `actor: effect` node arguments are static-only — no dynamic input-binding from an
+upstream node's output.**
+`registry.NodeDef.With` (a node's `with:` block) is parsed as a flat `map[string]string` of literal
+YAML values; there is no mechanism analogous to `inputs`'s `$.outputs.<nodeID>...` selectors for
+effect arguments. A `gh.pr.create` node cannot take its `branch`/`title`/`body` from an earlier LLM
+node's computed output — every value must be written verbatim in the workflow YAML at publish time.
+*Blast radius:* the realistic "agent proposes a PR, a downstream effect node actually opens it with
+the agent's own title/body" pattern is not expressible; only effects whose arguments are known at
+publish time (a fixed branch name, a fixed base) can be declared this way today.
+*Mitigations:* none shipped. Requires extending the same input-resolution mechanism `inputs` already
+has the shape for (`internal/registry.InputRef`), which no actor currently consults at dispatch time
+(engine-level input resolution does not exist yet at all, for any actor).
+*Detection:* a workflow author trying to reference `$.outputs.*` inside a `with:` block gets it parsed
+as a literal string, not an error — silently wrong, not silently rejected. Registered here rather than
+caught at publish time; a future validate.go check that rejects `$.outputs.` prefixes inside `with:`
+would at least fail loud instead of silent.
+*Revisit:* when any actor's engine-level input-resolution lands (a natural companion of a future
+multi-node data-flow document), extend `dispatchEffectActor` to resolve `nd.Inputs` into `Args`
+alongside the static `With` map.
+
+**NL-38 · `DryRun` and unattended-effect ceilings are engine-wide config, not per-run.**
+05-gates.md specifies `kairos run --dry-run` and `kairos run --unattended` (with `maxUnattendedPRs`)
+as per-invocation choices; `engine.Config.DryRun`/`UnattendedEffectCeilings` are daemon-wide settings
+read once at boot (same posture as L06's `WorkspaceRepo` and L11's `BaseRef`). Every run on a given
+daemon shares the same dry-run/ceiling behavior; "dry-run is the default for a workflow's first
+execution after publish" (a per-workflow, per-execution-count rule) is not implemented at all.
+*Blast radius:* an operator cannot dry-run one workflow while running another live on the same
+daemon; the ceiling is a global cap on one effect name across every run, not scoped to "this run,
+triggered while I was asleep."
+*Mitigations:* the engine-wide knobs are real and tested (**shipped**); per-run scoping is **none**.
+Requires threading a flag through `TriggerReceived`/the `POST /runs` API/the CLI (a small, mechanical
+but real chain of changes across four packages), and — for the "first execution after publish" rule
+specifically — tracking execution counts per definition, which does not exist anywhere today.
+*Detection:* none automatic — read `engine.Config.DryRun`'s doc comment.
+*Revisit:* when a caller genuinely needs per-run dry-run/ceiling control (a documented gap, not
+silently accepted).
+
+**NL-39 · `git.push` has no declared compensation — a reverse-order compensation run leaves it
+applied.**
+`effect.GitPush.Compensate` unconditionally returns `ErrNotCompensable`; `compensateRun` logs a
+warning and moves on rather than treating this as fatal. Unlike `gh.pr.create` (`gh pr close`,
+declared explicitly by 05-gates.md's own confirmation-preview example), the doc names no revert
+action for a push, and force-reverting a remote ref this system just pushed to is exactly the kind
+of destructive, no-human-in-the-loop action AGENTS §4 rule 7 forbids automating.
+*Blast radius:* a run that pushes a branch (`git.push`) and then fails on a later node leaves that
+branch pushed, uncompensated, after the run reaches `Failed` — an artifact a human must clean up.
+*Mitigations:* the outcome is honest and recorded (**shipped** — `compensateRun`'s warning log and
+the absence of any `effect.compensated` fact for this effect are both real, tested signals, not a
+silent no-op); an actual reversal (e.g. deleting the pushed ref) is **none**, deliberately, per the
+reasoning above.
+*Detection:* an `effect.applied{effect: "git.push"}` fact in a `Failed`/`Cancelled` run's stream with
+no matching `effect.compensated`.
+*Revisit:* only if a future document introduces a genuinely safe, human-confirmed branch-deletion
+effect — never as an automatic compensation.
+
+**NL-40 · Compensation is best-effort — a `Compensate` failure is logged and the effect is left
+applied, never retried.**
+`compensateRun` (L12) tries each already-applied effect exactly once, in reverse order; any error
+(a network failure, an expired credential, `ErrNotCompensable`) is logged via `slog` and that effect
+is simply skipped — there is no retry queue, no backoff, and no durable record of "compensation was
+attempted and failed" distinct from "compensation was never attempted."
+*Blast radius:* a transient failure (e.g. `gh` briefly rate-limited) permanently leaves an effect
+uncompensated with no automatic recovery path, indistinguishable in the event log from
+NL-39's deliberate non-compensability.
+*Mitigations:* none shipped beyond the log line itself.
+*Detection:* a `slog` WARN line naming the run/effect/externalRef — not queryable from the event log.
+*Revisit:* if compensation failures prove common in practice, add a `compensation.failed` domain
+event (distinct from silent absence) and a manual `kairos effects compensate <run> <node>` retry verb.
 
 **NL-13 · The audit log is not tamper-proof.**
 The agent can write `~/.kairos/kairos.db` unless G6–G9 are enabled.

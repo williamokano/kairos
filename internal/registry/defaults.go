@@ -33,6 +33,13 @@ func requiresOutputSchema(actor string) bool {
 	if actor == "rule" {
 		return false
 	}
+	// "effect" is L12's builtin-effect actor (git.push, gh.pr.create):
+	// its output is always {"externalRef": "..."} or {"simulated": true},
+	// shaped by internal/engine's dispatchEffectActor, never by
+	// free-form actor output — same posture as "rule".
+	if actor == "effect" {
+		return false
+	}
 	return true
 }
 
@@ -126,6 +133,7 @@ func defaultNode(yn yamlNode, rn raw) (NodeDef, error) {
 		SessionAffinity: yn.SessionAffinity,
 		Gates:           yn.Gates, // decision #6: no default library, empty when omitted
 		Effects:         yn.Effects,
+		With:            yn.With,
 		Optional:        yn.Optional,
 		SideEffectFree:  yn.SideEffectFree,
 	}

@@ -220,6 +220,22 @@ func derefEvent(ev domain.Event) domain.Event {
 		return *e
 	case *domain.ConversationMessageAppended:
 		return *e
+	case *domain.EffectAttempted:
+		return *e
+	case *domain.EffectApplied:
+		return *e
+	case *domain.EffectFailed:
+		return *e
+	case *domain.EffectUnknown:
+		return *e
+	case *domain.EffectSimulated:
+		return *e
+	case *domain.EffectCompensated:
+		return *e
+	case *domain.EffectConfirmationParked:
+		return *e
+	case *domain.EffectConfirmationAnswered:
+		return *e
 	default:
 		return ev
 	}

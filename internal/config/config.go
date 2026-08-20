@@ -65,6 +65,15 @@ type Config struct {
 	// silently skipping every confirmation. Empty means --unattended is
 	// always refused.
 	UnattendedAck string
+	// DryRun makes every actor: effect node record effect.simulated
+	// instead of performing its builtin (engine.Config.DryRun, L12).
+	// Engine-wide — see engine.Config.DryRun's doc comment for why a
+	// real per-run --dry-run flag is Future work.
+	DryRun bool
+	// MaxUnattendedPRs is 05-gates.md's maxUnattendedPRs ceiling,
+	// applied to gh.pr.create (engine.Config.UnattendedEffectCeilings,
+	// L12). 0 means no cap.
+	MaxUnattendedPRs int
 }
 
 // Load resolves $KAIROS_HOME (env override, then $XDG_STATE_HOME, then
@@ -124,6 +133,8 @@ func Load() (Config, error) {
 		PolicyPath:              policyPath,
 		BaseRef:                 v.GetString("BASE_REF"),
 		UnattendedAck:           v.GetString("UNATTENDED_ACK"),
+		DryRun:                  v.GetBool("DRY_RUN"),
+		MaxUnattendedPRs:        v.GetInt("MAX_UNATTENDED_PRS"),
 	}, nil
 }
 

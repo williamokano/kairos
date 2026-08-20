@@ -51,18 +51,26 @@ func Advance(state RunState, ev Event, now time.Time) (RunState, []Cmd, error) {
 		return advanceHumanTaskCreated(state, e)
 	case HumanTaskAnswered:
 		return advanceHumanTaskAnswered(state, e, now)
+	case EffectConfirmationParked:
+		return advanceEffectConfirmationParked(state, e)
+	case EffectConfirmationAnswered:
+		return advanceEffectConfirmationAnswered(state, e, now)
 	case LLMSessionStarted, SessionResumeFailed, SessionCostUnavailable, OutputRepairAttempted,
 		LogDegraded, LogTruncated, ConstraintEvaluated,
-		WaiverGranted, EffectConfirmationRequested, EffectConfirmed:
+		WaiverGranted, EffectConfirmationRequested, EffectConfirmed,
+		EffectAttempted, EffectApplied, EffectFailed, EffectUnknown, EffectSimulated, EffectCompensated:
 		// L08's audit-only facts, L09's log-backpressure facts, L10's
-		// per-gate ConstraintEvaluated, and L11's waiver/effect-confirmation
-		// facts: they
-		// record something true about a NodeExecution's actor invocation
-		// without moving it through any state the run's routing cares
-		// about (ExecStatus is untouched). Explicit no-op cases rather
-		// than falling through to default, since these DO belong to a
-		// run's own stream (unlike the L05 system-stream events) and must
-		// not error as unknown.
+		// per-gate ConstraintEvaluated, L11's waiver/effect-confirmation
+		// facts, and L12's effect state-machine facts: they record
+		// something true about a NodeExecution's actor invocation without
+		// moving it through any state the run's routing cares about
+		// (ExecStatus is untouched) — EffectUnknown deliberately included:
+		// leaving the owning NodeExecution non-terminal (never folding it
+		// to Failed/Succeeded here) IS "blocks the run reaching Failed",
+		// achieved by absence of a fold, not by a special-cased status.
+		// Explicit no-op cases rather than falling through to default,
+		// since these DO belong to a run's own stream (unlike the L05
+		// system-stream events) and must not error as unknown.
 		return state, nil, nil
 	default:
 		return state, nil, fmt.Errorf("%w: %T", ErrUnknownEvent, ev)
@@ -200,6 +208,47 @@ func advanceNodeWaitResolved(state RunState, e NodeWaitResolved, now time.Time) 
 	exec.Status = ExecExecuting
 	state = state.withExecution(exec)
 	return state, []Cmd{CmdEvaluateGates{RunID: state.ID, NodeID: string(exec.NodeID), ExecID: exec.ExecID}}, nil
+}
+
+// advanceEffectConfirmationParked moves a still-Pending exec straight to
+// ExecWaiting — see EffectConfirmationParked's doc comment.
+func advanceEffectConfirmationParked(state RunState, e EffectConfirmationParked) (RunState, []Cmd, error) {
+	if !legalRunEvent(state.Status, e.EventType()) {
+		return state, nil, ErrIllegalTransition
+	}
+	exec, err := currentExec(state, NodeID(e.NodeID), e.ExecID)
+	if err != nil {
+		return state, nil, err
+	}
+	if !legalExecEvent(exec.Status, e.EventType()) {
+		return state, nil, ErrIllegalTransition
+	}
+	exec.Status = ExecWaiting
+	state = state.withExecution(exec)
+	return state, []Cmd{CmdCreateHumanTask{RunID: state.ID, NodeID: e.NodeID, ExecID: e.ExecID}}, nil
+}
+
+// advanceEffectConfirmationAnswered resumes (Approved) or fails-and-routes
+// (declined) a parked effect confirmation — see EffectConfirmationAnswered's
+// doc comment.
+func advanceEffectConfirmationAnswered(state RunState, e EffectConfirmationAnswered, now time.Time) (RunState, []Cmd, error) {
+	if !legalRunEvent(state.Status, e.EventType()) {
+		return state, nil, ErrIllegalTransition
+	}
+	exec, err := currentExec(state, NodeID(e.NodeID), e.ExecID)
+	if err != nil {
+		return state, nil, err
+	}
+	if !legalExecEvent(exec.Status, e.EventType()) {
+		return state, nil, ErrIllegalTransition
+	}
+	if !e.Approved {
+		return handleFailureOutcome(state, exec, FailPolicyDenied, "effect confirmation declined", now)
+	}
+	exec.Status = ExecPending
+	state = state.withExecution(exec)
+	cmd := CmdStartNode{RunID: state.ID, NodeID: e.NodeID, ExecID: e.ExecID, Attempt: exec.Attempt, Iteration: exec.Iteration}
+	return state, []Cmd{cmd}, nil
 }
 
 func advanceNodeGatesEvaluated(state RunState, e NodeGatesEvaluated, now time.Time) (RunState, []Cmd, error) {

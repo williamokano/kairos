@@ -103,9 +103,11 @@ func serve(parentCtx context.Context) error {
 			MaxQueued: cfg.AdmissionMaxQueued,
 			DailyUSD:  cfg.DailyUSD,
 		},
-		ConstitutionProjectPath: cfg.ConstitutionProjectPath,
-		Policy:                  pol,
-		BaseRef:                 cfg.BaseRef,
+		ConstitutionProjectPath:  cfg.ConstitutionProjectPath,
+		Policy:                   pol,
+		BaseRef:                  cfg.BaseRef,
+		DryRun:                   cfg.DryRun,
+		UnattendedEffectCeilings: unattendedEffectCeilings(cfg.MaxUnattendedPRs),
 	})
 
 	// Reconciliation must complete before the API starts serving —
@@ -151,6 +153,18 @@ func serve(parentCtx context.Context) error {
 		}
 		return err
 	}
+}
+
+// unattendedEffectCeilings builds engine.Config.UnattendedEffectCeilings
+// — a zero maxPRs means "no cap" (config.Config.MaxUnattendedPRs's doc
+// comment), which must NOT become a map entry of 0: engine.go's ceiling
+// check treats any present entry as an active cap, and 0 would deny
+// every gh.pr.create outright.
+func unattendedEffectCeilings(maxPRs int) map[string]int {
+	if maxPRs <= 0 {
+		return nil
+	}
+	return map[string]int{"gh.pr.create": maxPRs}
 }
 
 // claimLock implements decision #2's PID-file-plus-socket-probe scheme:

@@ -40,6 +40,12 @@ type yamlNode struct {
 	Optional        bool           `json:"optional"`
 	SideEffectFree  bool           `json:"sideEffectFree"`
 	RestartPolicy   string         `json:"restartPolicy"`
+	// With is actor: effect's static argument block (L12-effects-
+	// compensation.md) — e.g. `with: { branch: kairos/fix, base: main,
+	// title: "Fix the bug" }`, values passed verbatim to the resolved
+	// builtin Provider. Values are strings only; dynamic input-binding
+	// (from an upstream node's output) is Future work.
+	With map[string]string `json:"with"`
 }
 
 type yamlResources struct {

@@ -70,6 +70,16 @@ var builtins = []builtinEvent{
 	// comment) — same non-run-scoped posture as the L05 system-stream
 	// rows above: no RunID, never folded through domain.Advance.
 	{"conversation.message.appended", 1, func() domain.Event { return &domain.ConversationMessageAppended{} }},
+	// L12-introduced, run-scoped effect state-machine facts (event.go's
+	// doc comments) — same audit-transition posture as the rows above.
+	{"effect.attempted", 1, func() domain.Event { return &domain.EffectAttempted{} }},
+	{"effect.applied", 1, func() domain.Event { return &domain.EffectApplied{} }},
+	{"effect.failed", 1, func() domain.Event { return &domain.EffectFailed{} }},
+	{"effect.unknown", 1, func() domain.Event { return &domain.EffectUnknown{} }},
+	{"effect.simulated", 1, func() domain.Event { return &domain.EffectSimulated{} }},
+	{"effect.compensated", 1, func() domain.Event { return &domain.EffectCompensated{} }},
+	{"effect.confirmation.parked", 1, func() domain.Event { return &domain.EffectConfirmationParked{} }},
+	{"effect.confirmation.answered", 1, func() domain.Event { return &domain.EffectConfirmationAnswered{} }},
 }
 
 // Builtin returns a Registry with every domain.Event type L01 defined,

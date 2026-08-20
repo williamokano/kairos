@@ -12,21 +12,21 @@ import (
 
 // checkEffects implements 05-gates.md's effect-permission tiers for
 // nd's declared Effects, before c is admitted or dispatched to any actor.
-// Returns blocked=true when the node has already been failed (deny, or a
-// missing confirmation) and dispatchStartNode must stop — matching
-// denyNode's own "nothing to unwind" property, since this runs before
-// admission ever grants a claim.
+// Returns blocked=true when the node must not proceed right now —
+// either because it was failed outright (deny) or because it was parked
+// pending a human answer (confirm, unconfirmed) — and dispatchStartNode
+// must stop either way, since this runs before admission ever grants a
+// claim.
 //
-// Scope, documented in full in L11-policy-secrets.md's Documented
-// decisions: this is a SYNCHRONOUS check, not 05-gates.md's full
-// pause-the-run-and-resume-on-a-human-answer flow. A confirm-tier effect
-// requires an EffectConfirmed fact to ALREADY exist for
-// (RunID, NodeID, Effect); if none does, the node fails immediately with
-// an actionable reason (after recording EffectConfirmationRequested for
-// audit) rather than parking indefinitely. The full async flow needs a
-// new "waiting to start" state-machine addition to internal/domain that
-// materially overlaps L12 (effects + compensation, which owns real effect
-// dispatch) and L13 (the human queue) — Future work, not built here.
+// L12 replaces L11's synchronous stub: a confirm-tier effect with no
+// EffectConfirmed fact for (RunID, NodeID, Effect) now genuinely parks
+// the node (EffectConfirmationParked, ExecWaiting) rather than failing
+// it — 05-gates.md's "insert a human task → RELEASE ALL PERMITS → the
+// node enters Waiting", made real via internal/domain's
+// EffectConfirmationParked/EffectConfirmationAnswered transitions. See
+// L12-effects-compensation.md's Documented decisions for exactly what
+// this does and does not cover (dry-run, unattended ceilings, and the
+// git/gh builtin dispatch itself live in effect.go, not here).
 func (e *Engine) checkEffects(ctx context.Context, c domain.CmdStartNode, nd registry.NodeDef) (blocked bool, err error) {
 	for _, effect := range nd.Effects {
 		decision := e.policy.Decide(effect)
@@ -48,8 +48,7 @@ func (e *Engine) checkEffects(ctx context.Context, c domain.CmdStartNode, nd reg
 			}); err != nil {
 				return false, err
 			}
-			return true, e.denyNodeWithReason(ctx, c, domain.FailPolicyDenied, fmt.Sprintf(
-				"effect %q requires confirmation and none is recorded (record one via GrantEffectConfirmation before re-running)", effect))
+			return true, e.parkForEffectConfirmation(ctx, c, effect)
 		default:
 			return true, e.denyNodeWithReason(ctx, c, domain.FailPolicyDenied, fmt.Sprintf("effect %q: unknown policy tier %q", effect, decision.Tier))
 		}

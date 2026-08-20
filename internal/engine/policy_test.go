@@ -126,17 +126,73 @@ func TestEngine_denyTierEffectFailsTheNodeWithAReason(t *testing.T) {
 	}
 }
 
-func TestEngine_confirmTierEffectBlocksWithoutARecordedConfirmation(t *testing.T) {
+// TestEngine_confirmTierEffectParksWithoutARecordedConfirmation replaces
+// L11's synchronous-fail expectation: L12 makes checkEffects's Confirm
+// path a real park (EffectConfirmationParked, ExecWaiting) instead of an
+// immediate failure — see policy.go's checkEffects doc comment and
+// L12-effects-compensation.md's Documented decisions.
+func TestEngine_confirmTierEffectParksWithoutARecordedConfirmation(t *testing.T) {
 	pol := policy.Policy{Default: "deny", Effects: map[string]policy.EffectRule{
 		"gh.pr.create": {Confirm: "each"},
 	}}
-	status, reason, _ := runEffectScenario(t, "gh.pr.create", pol)
-	if status != domain.RunFailed {
-		t.Fatalf("status = %q, want %q — no EffectConfirmed was ever recorded", status, domain.RunFailed)
+	st := openStore(t)
+	workRoot := t.TempDir()
+	runID := "run_effect_park"
+
+	defPath := filepath.Join(t.TempDir(), "def.yaml")
+	yaml := "name: effect-node\nnodes:\n  - id: n1\n    actor: shell\n    prompt: \"echo '{\\\"ok\\\":true}' > \\\"$KAIROS_OUTPUT_PATH\\\"\"\n    output: { ok: \"bool!\" }\n    effects: [gh.pr.create]\n"
+	if err := os.WriteFile(defPath, []byte(yaml), 0o600); err != nil {
+		t.Fatalf("writing definition: %v", err)
 	}
-	if reason != domain.FailPolicyDenied {
-		t.Fatalf("Reason = %q, want %q", reason, domain.FailPolicyDenied)
+
+	eng := newTestEngineWithPolicy(t, st, workRoot, pol)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := eng.Reconcile(ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
 	}
+	if err := eng.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = eng.Stop(context.Background()) }()
+
+	graph := domain.Graph{
+		Entry: "n1",
+		Nodes: []domain.Node{{ID: "n1", Retry: domain.RetryPolicy{MaxAttempts: 1}, LoopGuard: domain.LoopGuard{MaxIterationsPerNode: 1}}},
+		Edges: map[domain.NodeID]map[domain.EdgeTrigger]domain.NodeID{
+			"n1": {domain.OnSuccess: domain.SinkSucceed, domain.OnFailure: domain.SinkFail, domain.OnTimeout: domain.SinkFail},
+		},
+	}
+	meta := appendMetaFor(runID)
+	if _, err := st.AppendIf(ctx, runID, 0, []domain.Event{
+		domain.TriggerReceived{RunID: runID, TriggerRef: "test", DefinitionRef: defPath, CorrelationID: runID},
+	}, meta); err != nil {
+		t.Fatalf("append trigger: %v", err)
+	}
+	if _, err := st.AppendIf(ctx, runID, 1, []domain.Event{
+		domain.RunStarted{RunID: runID, Graph: graph},
+	}, meta); err != nil {
+		t.Fatalf("append run started: %v", err)
+	}
+
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		state, ok, err := st.GetRunState(ctx, runID)
+		if err != nil {
+			t.Fatalf("GetRunState: %v", err)
+		}
+		if ok {
+			execs := state.Executions["n1"]
+			if len(execs) > 0 && execs[len(execs)-1].Status == domain.ExecWaiting {
+				if state.Status.Terminal() {
+					t.Fatalf("run reached terminal status %q while parked — want it to stay non-terminal", state.Status)
+				}
+				return // parked, as expected — the point of this test
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("node never reached ExecWaiting within the deadline")
 }
 
 func TestEngine_effectConfirmationRequestedIsRecordedForAudit(t *testing.T) {

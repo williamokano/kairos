@@ -7,7 +7,8 @@ package domain
 // any per-event handler logic and returns ErrIllegalTransition otherwise.
 var legalExecEvents = map[ExecStatus]map[string]bool{
 	ExecPending: {
-		NodeExecutionStarted{}.EventType(): true,
+		NodeExecutionStarted{}.EventType():     true,
+		EffectConfirmationParked{}.EventType(): true,
 	},
 	ExecExecuting: {
 		NodeOutputReceived{}.EventType():       true,
@@ -23,8 +24,9 @@ var legalExecEvents = map[ExecStatus]map[string]bool{
 		NodeExecutionFailed{}.EventType(): true,
 	},
 	ExecWaiting: {
-		NodeWaitResolved{}.EventType():  true,
-		HumanTaskAnswered{}.EventType(): true,
+		NodeWaitResolved{}.EventType():           true,
+		HumanTaskAnswered{}.EventType():          true,
+		EffectConfirmationAnswered{}.EventType(): true,
 	},
 }
 
@@ -50,18 +52,20 @@ var legalRunEvents = map[RunStatus]map[string]bool{
 		RunRejected{}.EventType():     true,
 	},
 	RunRunning: {
-		NodeExecutionStarted{}.EventType():     true,
-		NodeOutputReceived{}.EventType():       true,
-		NodeWaitResolved{}.EventType():         true,
-		NodeGatesEvaluated{}.EventType():       true,
-		NodeExecutionFailed{}.EventType():      true,
-		NodeExecutionInterrupted{}.EventType(): true,
-		NodeExecutionLost{}.EventType():        true,
-		NodeExecutionAdopted{}.EventType():     true,
-		HumanTaskCreated{}.EventType():         true,
-		HumanTaskAnswered{}.EventType():        true,
-		RunCancelled{}.EventType():             true,
-		RunDegraded{}.EventType():              true,
+		NodeExecutionStarted{}.EventType():       true,
+		NodeOutputReceived{}.EventType():         true,
+		NodeWaitResolved{}.EventType():           true,
+		NodeGatesEvaluated{}.EventType():         true,
+		NodeExecutionFailed{}.EventType():        true,
+		NodeExecutionInterrupted{}.EventType():   true,
+		NodeExecutionLost{}.EventType():          true,
+		NodeExecutionAdopted{}.EventType():       true,
+		HumanTaskCreated{}.EventType():           true,
+		HumanTaskAnswered{}.EventType():          true,
+		EffectConfirmationParked{}.EventType():   true,
+		EffectConfirmationAnswered{}.EventType(): true,
+		RunCancelled{}.EventType():               true,
+		RunDegraded{}.EventType():                true,
 	},
 	RunDegradedS: {
 		RunDegradedResolved{}.EventType(): true,

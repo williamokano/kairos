@@ -13,6 +13,7 @@ import (
 	"github.com/williamokano/kairos/internal/artifact"
 	"github.com/williamokano/kairos/internal/constraint"
 	"github.com/williamokano/kairos/internal/domain"
+	"github.com/williamokano/kairos/internal/effect"
 	"github.com/williamokano/kairos/internal/events"
 	"github.com/williamokano/kairos/internal/eventstore"
 	"github.com/williamokano/kairos/internal/executor/local"
@@ -81,6 +82,26 @@ type Config struct {
 	// L11-policy-secrets.md) — this is one daemon-wide default, matching
 	// WorkspaceRepo's existing single-repo scope from L06.
 	BaseRef string
+
+	// EffectProviders resolves actor: effect's declared builtin (git.push,
+	// gh.pr.create, …) to a real implementation. nil means New wires the
+	// two real providers (effect.GitPush, effect.GHPRCreate); tests
+	// inject effect.Fake doubles instead. See L12-effects-compensation.md.
+	EffectProviders map[string]effect.Provider
+	// DryRun, when true, makes every actor: effect node record
+	// effect.simulated instead of performing its builtin — engine-wide,
+	// not per-run (05-gates.md's "dry-run is the default for a
+	// workflow's first execution after publish" needs a per-run flag
+	// threaded through TriggerReceived/the API/the CLI, which is
+	// proportionately more than this document's scope; see Future work).
+	DryRun bool
+	// UnattendedEffectCeilings caps how many times one effect name may
+	// reach EffectApplied within a single run (05-gates.md's
+	// maxUnattendedPRs/maxUnattendedPushes) — engine-wide per effect
+	// name, enforced on every run regardless of how it was triggered
+	// (see Future work on why "unattended" isn't yet a real per-run
+	// signal). A missing entry means no cap for that effect.
+	UnattendedEffectCeilings map[string]int
 }
 
 // Engine is the advance loop: Store.Subscribe -> domain.Advance -> dispatch.
@@ -141,6 +162,10 @@ type Engine struct {
 	// across a restart; a not-yet-due one is simply re-armed there.
 	timersMu sync.Mutex
 	timers   map[string]*time.Timer // key: runID+"/"+nodeID+"/"+execID
+
+	effectProviders map[string]effect.Provider
+	dryRun          bool
+	effectCeilings  map[string]int
 }
 
 // pendingStart is one CmdStartNode admission Queued — everything
@@ -191,6 +216,16 @@ func New(cfg Config) *Engine {
 		constitutionProjectPath: cfg.ConstitutionProjectPath,
 		policy:                  cfg.Policy,
 		baseRef:                 cfg.BaseRef,
+
+		dryRun:         cfg.DryRun,
+		effectCeilings: cfg.UnattendedEffectCeilings,
+	}
+	e.effectProviders = cfg.EffectProviders
+	if e.effectProviders == nil {
+		e.effectProviders = map[string]effect.Provider{
+			"git.push":     effect.GitPush{Exec: cfg.Executor},
+			"gh.pr.create": effect.GHPRCreate{Exec: cfg.Executor},
+		}
 	}
 	e.constraints = constraint.New(cfg.Executor, e.admit).WithJudge(e)
 	e.shards = make([]*shard, e.numShards)

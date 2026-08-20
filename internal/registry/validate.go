@@ -58,6 +58,14 @@ func Validate(doc rawDoc, def Definition) error {
 			return fmt.Errorf("node %q: output or outputSchema is required for actor %q", nd.ID, nd.Actor)
 		}
 
+		// actor: effect names exactly one builtin (git.push, gh.pr.create,
+		// …) via its single Effects entry — the node IS the effect, not a
+		// generic actor that happens to declare side effects among
+		// several (L12-effects-compensation.md's Documented decisions).
+		if nd.Actor == "effect" && len(nd.Effects) != 1 {
+			return fmt.Errorf("node %q: actor \"effect\" requires exactly one entry in effects (got %d)", nd.ID, len(nd.Effects))
+		}
+
 		if nd.Wait != nil {
 			if nd.Wait.OnTimeout != "escalate" && nd.Wait.OnTimeout != "park" {
 				return fmt.Errorf("node %q: wait.onTimeout is required and must be \"escalate\" or \"park\"", nd.ID)

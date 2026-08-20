@@ -42,7 +42,7 @@ func handleApprove(deps Deps) http.HandlerFunc {
 			return
 		}
 
-		err := deps.Engine.AnswerHumanTask(r.Context(), runID, req.NodeID, engine.AnswerDecision{
+		err := deps.Engine.Approve(r.Context(), runID, req.NodeID, engine.AnswerDecision{
 			Decision: req.Decision, Reason: req.Reason, TypedWord: req.TypedWord,
 		})
 		switch {

@@ -430,6 +430,124 @@ type EffectConfirmed struct {
 func (EffectConfirmed) EventType() string { return "effect.confirmed" }
 func (EffectConfirmed) isEvent()          {}
 
+// EffectConfirmationParked is L12's real park transition — unlike
+// EffectConfirmationRequested (an audit-only fact, kept for L11
+// compatibility, still folded as a no-op), this event actually moves the
+// still-Pending NodeExecution to ExecWaiting and dispatches
+// CmdCreateHumanTask, matching 05-gates.md's "insert a human task →
+// RELEASE ALL PERMITS → the node enters Waiting" — permits are trivially
+// released because none were ever granted: checkEffects runs before
+// admission (internal/engine/dispatch.go), so a parked node never held a
+// claim to begin with.
+type EffectConfirmationParked struct {
+	RunID, NodeID, ExecID string
+	Effect                string
+}
+
+func (EffectConfirmationParked) EventType() string { return "effect.confirmation.parked" }
+func (EffectConfirmationParked) isEvent()          {}
+
+// EffectConfirmationAnswered resolves a parked confirmation — Approved
+// resumes the SAME NodeExecution (back to ExecPending, re-dispatched via
+// CmdStartNode with its original ExecID/Attempt/Iteration, so the fresh
+// EffectConfirmed fact checkEffects now finds lets it proceed to the
+// actual effect); a decline routes via the node's failure edge, matching
+// 05-gates.md's "n → effect.declined → on.denied" (this codebase has no
+// distinct OnDenied edge trigger — reusing OnFailure, the same trigger
+// checkEffects's Deny-tier path already uses for a policy denial).
+type EffectConfirmationAnswered struct {
+	RunID, NodeID, ExecID string
+	Approved              bool
+	Reason                string
+}
+
+func (EffectConfirmationAnswered) EventType() string { return "effect.confirmation.answered" }
+func (EffectConfirmationAnswered) isEvent()          {}
+
+// EffectAttempted is L12's "decision before action" record for a builtin
+// effect (actor: effect — git.push, gh.pr.create): appended BEFORE the
+// external call, so a crash mid-call leaves this as the last fact and
+// startup reconciliation probes the effect by IdempotencyKey instead of
+// blindly retrying (06-durability.md's "the single most valuable recovery
+// path in the system"). IdempotencyKey is a pure function of
+// (RunID, NodeID, Effect) — see internal/effect.IdempotencyKey and its
+// doc comment on why lineage == RunID until L17 gives forking real
+// meaning.
+type EffectAttempted struct {
+	RunID, NodeID, ExecID string
+	Effect                string
+	IdempotencyKey        string
+}
+
+func (EffectAttempted) EventType() string { return "effect.attempted" }
+func (EffectAttempted) isEvent()          {}
+
+// EffectApplied is the successful terminal outcome of an EffectAttempted
+// effect — ExternalRef is the provider's own identifier for what it did
+// (a PR URL, a pushed ref), the value reverse-order compensation reads to
+// know what to undo.
+type EffectApplied struct {
+	RunID, NodeID, ExecID string
+	Effect                string
+	ExternalRef           string
+}
+
+func (EffectApplied) EventType() string { return "effect.applied" }
+func (EffectApplied) isEvent()          {}
+
+// EffectFailed is the failed terminal outcome: the provider ran and
+// definitively knows the mutation did not happen.
+type EffectFailed struct {
+	RunID, NodeID, ExecID string
+	Effect                string
+	Reason                string
+}
+
+func (EffectFailed) EventType() string { return "effect.failed" }
+func (EffectFailed) isEvent()          {}
+
+// EffectUnknown is 06-durability.md's third, deliberately non-retryable
+// outcome: reconciliation probed by IdempotencyKey and the provider
+// itself could not say whether the mutation happened. Recording this
+// does not resolve the owning NodeExecution to any terminal status — it
+// stays Executing with no further NodeExecutionFailed/NodeOutputReceived
+// fold, which is what "blocks the run reaching Failed" concretely means
+// here: a RunState can never reach a terminal status while any
+// NodeExecution stays non-terminal. Resolving it is an operator action
+// (see internal/engine's ResolveEffectUnknown) this document exposes as
+// a callable core function, with a thin CLI verb named as Future work.
+type EffectUnknown struct {
+	RunID, NodeID, ExecID string
+	Effect                string
+}
+
+func (EffectUnknown) EventType() string { return "effect.unknown" }
+func (EffectUnknown) isEvent()          {}
+
+// EffectSimulated records a dry-run: the effect was previewed, not
+// performed. See internal/engine.Config.DryRun's doc comment for this
+// document's engine-wide (not yet per-run) scope.
+type EffectSimulated struct {
+	RunID, NodeID, ExecID string
+	Effect                string
+}
+
+func (EffectSimulated) EventType() string { return "effect.simulated" }
+func (EffectSimulated) isEvent()          {}
+
+// EffectCompensated records that a previously EffectApplied effect was
+// reversed — by internal/engine's compensateRun, in strict reverse
+// application order, triggered when a run transitions to Cancelled or
+// Failed with one or more effects already applied.
+type EffectCompensated struct {
+	RunID, NodeID, ExecID string
+	Effect                string
+	ExternalRef           string
+}
+
+func (EffectCompensated) EventType() string { return "effect.compensated" }
+func (EffectCompensated) isEvent()          {}
+
 // ConversationMessageAppended is one message on a Conversation's own
 // stream (stream_id = "conversation:<runID>" — L14 scopes Conversation
 // 1:1 with Run, see L14-conversations.md's Documented decisions), never

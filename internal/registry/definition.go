@@ -146,6 +146,10 @@ type NodeDef struct {
 	// effect manager. Neither is validated here beyond "non-empty string".
 	Gates   []string
 	Effects []string
+	// With is actor: effect's static argument block — see yamlNode.With's
+	// doc comment (parse.go) for the exact shape and its Future-work
+	// limitation (static values only, no dynamic input-binding yet).
+	With map[string]string
 
 	Artifacts []ArtifactSpec
 
