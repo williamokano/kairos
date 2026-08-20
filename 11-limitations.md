@@ -360,8 +360,36 @@ token count. Every llm-actor invocation emits `session.cost.unavailable`.
 `resources.model.maxCostUSD` are both parsed and validated but have no enforcing code path here.
 *Mitigations:* honest reporting via `session.cost.unavailable` rather than a fabricated number
 (**shipped** — AGENTS §4 rule 1: "a made-up number in a budget check is worse than a missing one");
-real cost parsing (**none**).
+real cost parsing (**none**). *Update, L07:* `internal/admission`'s rule 5 (`limits.dailyUSD`) now
+checks a node's declared `resources.model.maxCostUSD` as an admission-time *estimate* against the
+daily cap — a real enforcing code path exists now, but it is still bounded by this same limitation:
+the estimate is never reconciled against what a run actually cost, since that number is never known
+(**shipped**, `internal/admission.TestTryAdmit_dailyBudgetCapDenies`; reconciliation against actual
+spend: **none**).
 *Detection:* `session.cost.unavailable` in a run's event stream, once per llm-actor execution.
+
+**NL-31 · A node execution denied or that fails before it ever spawns is recorded as a zero-duration
+started-then-failed attempt, not a distinct "never started" state.**
+`internal/domain`'s `legalExecEvents` table only accepts `NodeExecutionFailed` against an `Executing`
+exec — `ExecPending` accepts only `NodeExecutionStarted`. L07's admission denial path
+(`internal/engine.denyNode`) discovered this by hitting `ErrIllegalTransition` directly and fixed
+itself by appending `NodeExecutionStarted` immediately before `NodeExecutionFailed`. The same
+illegal-transition trap exists, unfixed, in `dispatchShellActor`'s and `dispatchLLMActor`'s own
+early-failure returns (L06/L08) — e.g. "node declares workspace: write but the engine has no
+configured WorkspaceRepo", a workspace-provisioning error, or a process-start error — all of which
+call `appendNodeFailed` directly on a still-`Pending` exec. No test currently exercises those
+branches through the live engine/domain fold (they are latent, not currently observed to fail), which
+is why L06/L08 shipped without catching it.
+*Blast radius:* if any of those early-failure branches is ever hit by a real workflow, the engine logs
+`dispatch failed` and drops the node without ever recording its failure — the run stalls with a
+`NodeExecution` stuck `Pending` forever rather than failing cleanly, since `domain.Advance` rejects the
+illegal event before any state changes.
+*Mitigations:* none shipped for the L06/L08 call sites (L07 fixed only the call sites it introduced,
+per scope discipline — see L07-admission.md's Documented decisions).
+*Detection:* none automatic; would show up as a run stuck non-terminal with no matching event
+recorded for the stalled node, and a `dispatch failed` ERROR log line.
+*Revisit:* the next document that touches `dispatchShellActor`/`dispatchLLMActor` should route their
+early-failure returns through a shared `denyNode`-shaped helper instead of `appendNodeFailed` directly.
 
 **NL-13 · The audit log is not tamper-proof.**
 The agent can write `~/.kairos/kairos.db` unless G6–G9 are enabled.

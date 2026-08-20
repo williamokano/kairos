@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/williamokano/kairos/internal/admission"
 	"github.com/williamokano/kairos/internal/domain"
 	"github.com/williamokano/kairos/internal/events"
 	"github.com/williamokano/kairos/internal/eventstore"
@@ -48,6 +49,11 @@ type Config struct {
 	// hash(runID). Defaults to 4 if zero.
 	NumShards int
 	Logger    *slog.Logger
+
+	// Admission sizes L07's admission pools (internal/admission). A
+	// zero-value Config disables every capacity rule (unlimited) — see
+	// admission.New's doc comment.
+	Admission admission.Config
 }
 
 // Engine is the advance loop: Store.Subscribe -> domain.Advance -> dispatch.
@@ -63,10 +69,37 @@ type Engine struct {
 	numShards     int
 	log           *slog.Logger
 
+	admit *admission.Manager
+	// pendingMu guards pending — every enqueue/dequeue/drain happens under
+	// it, since a Queued node execution can be re-tried from any shard
+	// goroutine's dispatch call or from another node's release, never
+	// exclusively the shard that queued it.
+	pendingMu sync.Mutex
+	pending   []pendingStart
+	// drainMu serializes drainPending against itself across concurrent
+	// releases — see admission.go's doc comment on why pendingMu alone
+	// isn't enough to prevent a queued node being admitted twice.
+	drainMu sync.Mutex
+	// claimsMu guards claims — set at grant time (dispatchStartNode),
+	// read and cleared at release time (the reap goroutines), which run on
+	// a different goroutine than the shard that granted them.
+	claimsMu sync.Mutex
+	claims   map[string]admission.Claims // execID -> claims held for it
+
 	shards []*shard
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+}
+
+// pendingStart is one CmdStartNode admission Queued — everything
+// dispatchStartNode needs to retry the exact same dispatch later, with no
+// side effect yet recorded (admission runs before NodeExecutionStarted is
+// ever appended, so replaying this is exactly as if dispatch were called
+// for the first time).
+type pendingStart struct {
+	definitionRef string
+	cmd           domain.CmdStartNode
 }
 
 // New constructs an Engine. Call Reconcile before Start.
@@ -95,6 +128,8 @@ func New(cfg Config) *Engine {
 		killGrace:     cfg.KillGrace,
 		numShards:     cfg.NumShards,
 		log:           cfg.Logger,
+		admit:         admission.New(cfg.Admission),
+		claims:        make(map[string]admission.Claims),
 	}
 	e.shards = make([]*shard, e.numShards)
 	for i := range e.shards {
@@ -215,6 +250,7 @@ func (e *Engine) firstEventDefinitionRef(ctx context.Context, runID string) (str
 // budget, since it is the fact the next boot's unclean-exit detection
 // depends on; it gets its own.
 func (e *Engine) Stop(ctx context.Context) error {
+	e.admit.SetDraining(true)
 	if e.cancel != nil {
 		e.cancel()
 	}

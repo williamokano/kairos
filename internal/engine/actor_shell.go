@@ -22,6 +22,18 @@ import (
 // JSON to $KAIROS_OUTPUT_PATH to succeed; anything else fails or, if the
 // file is missing/invalid, is treated as schema-invalid output.
 func (e *Engine) dispatchShellActor(ctx context.Context, nd registry.NodeDef, c domain.CmdStartNode) error {
+	// The admission claim for c.ExecID is released here on every
+	// synchronous failure path (releaseAndDrain is idempotent-safe if
+	// called twice), and by reapShell once the process actually exits —
+	// spawned marks the point past which the reaper, not this function,
+	// owns that release.
+	spawned := false
+	defer func() {
+		if !spawned {
+			e.releaseAndDrain(ctx, c.ExecID)
+		}
+	}()
+
 	dir := e.scratchDir(c.RunID, c.ExecID)
 	outputPath := filepath.Join(dir, "output.json")
 
@@ -70,6 +82,7 @@ func (e *Engine) dispatchShellActor(ctx context.Context, nd registry.NodeDef, c 
 		return err
 	}
 
+	spawned = true
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
@@ -83,6 +96,8 @@ func (e *Engine) dispatchShellActor(ctx context.Context, nd registry.NodeDef, c 
 // declared OutputSchema — SchemaValid means "conforms," not merely
 // "parses."
 func (e *Engine) reapShell(ctx context.Context, nd registry.NodeDef, runID, nodeID, execID string, pid int, outputPath string) {
+	defer e.releaseAndDrain(ctx, execID)
+
 	res, err := e.exec.Wait(ctx, pid)
 	if err != nil {
 		_ = e.appendNodeFailed(ctx, runID, nodeID, execID, domain.FailFailure, "waiting for process: "+err.Error())

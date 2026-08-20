@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/williamokano/kairos/internal/admission"
 	"github.com/williamokano/kairos/internal/api"
 	"github.com/williamokano/kairos/internal/cli"
 	"github.com/williamokano/kairos/internal/config"
@@ -91,6 +92,11 @@ func serve(parentCtx context.Context) error {
 		WorkspaceRepo: cfg.WorkspaceRepo,
 		LLMBinary:     cfg.LLMBinary,
 		KillGrace:     10 * time.Second,
+		Admission: admission.Config{
+			NodeSlots: cfg.AdmissionNodeSlots,
+			MaxQueued: cfg.AdmissionMaxQueued,
+			DailyUSD:  cfg.DailyUSD,
+		},
 	})
 
 	// Reconciliation must complete before the API starts serving —

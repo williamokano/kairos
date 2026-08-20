@@ -25,6 +25,16 @@ import (
 // Future work: this reads only the CLI's final output.json, never an
 // incremental stream (documented decision — see L08-actor-sdk.md).
 func (e *Engine) dispatchLLMActor(ctx context.Context, nd registry.NodeDef, c domain.CmdStartNode, actorKind string) error {
+	// See dispatchShellActor's identical comment: releases c.ExecID's
+	// admission claim on every synchronous failure path below; spawned
+	// marks the point past which reapLLM owns that release instead.
+	spawned := false
+	defer func() {
+		if !spawned {
+			e.releaseAndDrain(ctx, c.ExecID)
+		}
+	}()
+
 	if e.llmBinary == "" {
 		return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure,
 			fmt.Sprintf("actor %q requires a configured LLM binary (engine.Config.LLMBinary is empty)", actorKind))
@@ -72,6 +82,7 @@ func (e *Engine) dispatchLLMActor(ctx context.Context, nd registry.NodeDef, c do
 		return err
 	}
 
+	spawned = true
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
@@ -181,6 +192,8 @@ func (e *Engine) startLLM(ctx context.Context, c domain.CmdStartNode, workDir, d
 // job: Stage 4 is domain's own existing retry ladder, reached simply by
 // this function reporting SchemaValid: false like any other actor.
 func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, workDir, dir, outputPath, schemaPath string, pid int) {
+	defer e.releaseAndDrain(ctx, c.ExecID)
+
 	res, err := e.exec.Wait(ctx, pid)
 	if err != nil {
 		_ = e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure, "waiting for process: "+err.Error())

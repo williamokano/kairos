@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/williamokano/kairos/internal/admission"
 	"github.com/williamokano/kairos/internal/domain"
 	"github.com/williamokano/kairos/internal/eventstore"
 	"github.com/williamokano/kairos/internal/executor/local"
@@ -53,35 +54,47 @@ func (e *Engine) dispatchStartNode(ctx context.Context, definitionRef string, c 
 	if err != nil {
 		return fmt.Errorf("loading definition: %w", err)
 	}
-	var nd registry.NodeDef
-	found := false
-	for _, n := range def.Nodes {
-		if string(n.ID) == c.NodeID {
-			nd = n
-			found = true
-			break
-		}
-	}
+	nd, actor, found := resolveNodeActor(def, c)
 	if !found {
 		return fmt.Errorf("node %q not found in definition %s", c.NodeID, definitionRef)
 	}
 
-	// retry.mutate resolves per-attempt: 04-agents.md's escalation ladder
-	// ("attempt 2 on a stronger model, attempt 3 on a different CLI")
-	// swaps which actor this specific attempt uses. domain.Advance never
-	// reads Mutate (confirmed: CmdStartNode carries only NodeID/Attempt,
-	// no actor field) — this resolution is purely an engine-level
-	// dispatch-time concern, applied here rather than duplicating a
-	// second retry system.
-	actor := nd.Actor
-	for _, m := range nd.Retry.Mutate {
-		if m.Attempt == c.Attempt && m.Actor != "" {
-			actor = m.Actor
-		}
+	// L07: admission answers "may it start right now?" before any actor
+	// ever spawns a process — see internal/admission and
+	// L07-admission.md. A Queued outcome never falls through to the actor
+	// switch below: nothing has been recorded for this exec yet
+	// (NodeExecutionStarted is only appended by the actor dispatch
+	// functions themselves), so it is retried later with no side effect
+	// to unwind. A Denied outcome DOES record NodeExecutionStarted first
+	// — domain's legalExecEvents table only accepts NodeExecutionFailed
+	// against an Executing exec (ExecPending accepts only Started), so a
+	// denial is represented as a zero-duration started-then-failed
+	// attempt rather than an illegal Pending->Failed transition.
+	req := e.admissionRequest(nd, actor)
+	decision := e.admit.TryAdmit(req)
+	switch decision.Outcome {
+	case admission.Denied:
+		return e.denyNode(ctx, c, decision.Reason)
+	case admission.Queued:
+		e.enqueuePending(definitionRef, c)
+		return nil
 	}
 
+	e.storeClaim(c.ExecID, decision.Claims)
+	return e.runActorDispatch(ctx, nd, c, actor)
+}
+
+// runActorDispatch is the actor switch itself, factored out of
+// dispatchStartNode so drainPending (admission.go) can re-run it for a
+// previously Queued node execution without duplicating the switch. Every
+// actor here is responsible for releasing c.ExecID's admission claim
+// (via e.releaseAndDrain) once its work is truly finished — synchronous
+// actors (rule) release before returning; actors that spawn a background
+// reaper (shell, llm) transfer that responsibility to the reaper.
+func (e *Engine) runActorDispatch(ctx context.Context, nd registry.NodeDef, c domain.CmdStartNode, actor string) error {
 	switch actor {
 	case "rule":
+		defer e.releaseAndDrain(ctx, c.ExecID)
 		return e.dispatchRuleActor(ctx, c)
 	case "shell":
 		return e.dispatchShellActor(ctx, nd, c)
@@ -90,6 +103,7 @@ func (e *Engine) dispatchStartNode(ctx context.Context, definitionRef string, c 
 	default:
 		// human/builtin.* actors are out of L08's scope too — the engine
 		// fails the node honestly rather than hanging forever.
+		defer e.releaseAndDrain(ctx, c.ExecID)
 		return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure,
 			fmt.Sprintf("actor %q is not implemented", actor))
 	}
@@ -166,6 +180,16 @@ func (e *Engine) appendNodeFailed(ctx context.Context, runID, nodeID, execID str
 	return e.appendNext(ctx, runID, domain.NodeExecutionFailed{
 		RunID: runID, NodeID: nodeID, ExecID: execID, Reason: reason, Message: message,
 	})
+}
+
+// denyNode records c as a zero-duration started-then-failed attempt — see
+// dispatchStartNode's comment on why NodeExecutionStarted must be
+// appended first for a Denied outcome.
+func (e *Engine) denyNode(ctx context.Context, c domain.CmdStartNode, reason string) error {
+	if err := e.appendNext(ctx, c.RunID, domain.NodeExecutionStarted(c)); err != nil {
+		return err
+	}
+	return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure, "denied: "+reason)
 }
 
 func (e *Engine) appendInterrupted(ctx context.Context, runID, nodeID, execID string) error {

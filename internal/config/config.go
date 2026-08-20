@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/spf13/viper"
 )
@@ -26,6 +27,18 @@ type Config struct {
 	// nodes invoke (engine.Config.LLMBinary, L08). Empty means no
 	// llm-kind node can run.
 	LLMBinary string
+	// AdmissionNodeSlots is admission.nodes (L07) — concurrent node
+	// executions across the whole daemon. Defaults to min(4, NumCPU/2)
+	// per 02-config.md's defaults table.
+	AdmissionNodeSlots int
+	// AdmissionMaxQueued is admission.maxQueued (L07) — past this many
+	// queued node executions, admission rejects rather than queues.
+	// Defaults to 40 per 02-config.md.
+	AdmissionMaxQueued int
+	// DailyUSD is limits.dailyUSD (L07) — see admission.Request's caveat
+	// that this is checked against declared/estimated cost, never metered
+	// actual spend (NL-30). Defaults to 25 per 02-config.md.
+	DailyUSD float64
 }
 
 // Load resolves $KAIROS_HOME (env override, then $XDG_STATE_HOME, then
@@ -52,9 +65,38 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("creating kairos home %s: %w", home, err)
 	}
 
+	nodeSlots := v.GetInt("ADMISSION_NODES")
+	if nodeSlots == 0 {
+		nodeSlots = defaultNodeSlots()
+	}
+	maxQueued := v.GetInt("ADMISSION_MAX_QUEUED")
+	if maxQueued == 0 {
+		maxQueued = 40
+	}
+	dailyUSD := v.GetFloat64("DAILY_USD")
+	if dailyUSD == 0 {
+		dailyUSD = 25
+	}
+
 	return Config{
-		Home:          home,
-		WorkspaceRepo: v.GetString("WORKSPACE_REPO"),
-		LLMBinary:     v.GetString("LLM_BINARY"),
+		Home:               home,
+		WorkspaceRepo:      v.GetString("WORKSPACE_REPO"),
+		LLMBinary:          v.GetString("LLM_BINARY"),
+		AdmissionNodeSlots: nodeSlots,
+		AdmissionMaxQueued: maxQueued,
+		DailyUSD:           dailyUSD,
 	}, nil
+}
+
+// defaultNodeSlots mirrors 02-config.md's admission.nodes default:
+// min(4, NumCPU/2), floored at 1 so a single-core host still admits work.
+func defaultNodeSlots() int {
+	n := runtime.NumCPU() / 2
+	if n > 4 {
+		n = 4
+	}
+	if n < 1 {
+		n = 1
+	}
+	return n
 }
