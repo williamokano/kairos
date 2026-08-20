@@ -242,6 +242,12 @@ func derefEvent(ev domain.Event) domain.Event {
 		return *e
 	case *domain.ChildRunSpawned:
 		return *e
+	case *domain.WorkspaceSnapshotTaken:
+		return *e
+	case *domain.RunForked:
+		return *e
+	case *domain.ForkWorkspaceDrifted:
+		return *e
 	default:
 		return ev
 	}

@@ -228,6 +228,45 @@ func (c *Client) ApproveHumanTask(ctx context.Context, runID, nodeID, decision, 
 	}, nil)
 }
 
+// ForkResult mirrors internal/api's forkResponse.
+type ForkResult struct {
+	NewRunID          string `json:"newRunId"`
+	Drifted           bool   `json:"drifted"`
+	ActualSnapshotSeq int    `json:"actualSnapshotSeq"`
+}
+
+// Fork posts a kairos-fork-shaped request. overrides may be nil.
+func (c *Client) Fork(ctx context.Context, runID string, atSequence int, overrides map[string]string, allowDrift bool) (ForkResult, error) {
+	var out ForkResult
+	err := c.do(ctx, http.MethodPost, "/runs/"+runID+"/fork", map[string]any{
+		"atSequence": atSequence, "overrides": overrides, "allowDrift": allowDrift,
+	}, &out)
+	return out, err
+}
+
+// CompareSide mirrors internal/api's runSummaryForCompare.
+type CompareSide struct {
+	RunID       string `json:"runId"`
+	Status      string `json:"status"`
+	Duration    int64  `json:"durationNanos"`
+	Attempts    int    `json:"attempts"`
+	Findings    int    `json:"findings"`
+	ForkedFrom  string `json:"forkedFrom,omitempty"`
+	Drifted     bool   `json:"drifted"`
+	DriftDetail string `json:"driftDetail,omitempty"`
+}
+
+type CompareResult struct {
+	A CompareSide `json:"a"`
+	B CompareSide `json:"b"`
+}
+
+func (c *Client) Compare(ctx context.Context, runA, runB string) (CompareResult, error) {
+	var out CompareResult
+	err := c.do(ctx, http.MethodGet, "/runs/"+runA+"/compare/"+runB, nil, &out)
+	return out, err
+}
+
 // Ping reports whether the daemon responds at all — used by ensureDaemon
 // to detect a live socket before attempting auto-start.
 func (c *Client) Ping(ctx context.Context) bool {

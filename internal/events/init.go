@@ -92,6 +92,12 @@ var builtins = []builtinEvent{
 	// effect.* rows above.
 	{"child.runs.planned", 1, func() domain.Event { return &domain.ChildRunsPlanned{} }},
 	{"child.run.spawned", 1, func() domain.Event { return &domain.ChildRunSpawned{} }},
+	// L18-introduced, run-scoped fork/snapshot bookkeeping facts
+	// (event.go's doc comments) — same audit-transition posture as the
+	// child.* rows above.
+	{"workspace.snapshot.taken", 1, func() domain.Event { return &domain.WorkspaceSnapshotTaken{} }},
+	{"run.forked", 1, func() domain.Event { return &domain.RunForked{} }},
+	{"fork.workspace.drifted", 1, func() domain.Event { return &domain.ForkWorkspaceDrifted{} }},
 }
 
 // Builtin returns a Registry with every domain.Event type L01 defined,

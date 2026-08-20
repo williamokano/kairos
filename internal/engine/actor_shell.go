@@ -127,9 +127,11 @@ func (e *Engine) reapShell(ctx context.Context, nd registry.NodeDef, runID, node
 	if inline != nil {
 		raw = json.RawMessage(inline)
 	}
-	_ = e.appendNext(ctx, runID, domain.NodeOutputReceived{
+	if err := e.appendNext(ctx, runID, domain.NodeOutputReceived{
 		RunID: runID, NodeID: nodeID, ExecID: execID, SchemaValid: valid, Output: raw, OutputRef: ref,
-	})
+	}); err == nil && valid {
+		e.maybeSnapshotWorkspace(ctx, nd.Workspace == registry.WorkspaceWrite, runID, nodeID, execID)
+	}
 }
 
 func validateOutput(nd registry.NodeDef, body []byte) bool {

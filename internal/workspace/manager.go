@@ -123,6 +123,15 @@ func (m *Manager) Reprovision(ctx context.Context, runID, sourceRepo string) (Wo
 	return m.Provision(ctx, runID, sourceRepo)
 }
 
+// Existing returns runID's already-provisioned workspace path, without
+// creating or verifying anything — callers that already know a workspace
+// exists (L18's Fork, which is about to fetch a ref out of it as another
+// run's snapshot source) use this instead of Provision, which would
+// attempt to (re)clone.
+func (m *Manager) Existing(runID string) Workspace {
+	return Workspace{RunID: runID, Dir: m.runDir(runID)}
+}
+
 // Verify reports whether dir looks like an intact git workspace — cheap,
 // no subprocess, safe to call from a hot path.
 func Verify(dir string) bool {

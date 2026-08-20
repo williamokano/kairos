@@ -22,14 +22,39 @@ type shard struct {
 	// per L03's ProjectGraph), but dispatch needs it to load the rich
 	// registry.Definition for actor/gates/restart-policy lookups.
 	defRefs map[string]string
+
+	// primedUpTo backs Fork's "copy the prefix without re-executing it"
+	// requirement (L18): a run whose events 1..N were already folded and
+	// dispatched once (by the ORIGINAL run they were copied from) must
+	// not be re-dispatched when the copies themselves arrive on this
+	// shard's live queue. primeCh delivers a synchronous
+	// (state, definitionRef, uptoSeq) triple that process consults before
+	// folding/dispatching each incoming envelope for that run.
+	primedUpTo map[string]int
+	primeCh    chan primeForkMsg
+}
+
+// primeForkMsg seeds a forked run's state on its owning shard's own
+// goroutine — sent and waited on synchronously by Engine.Fork so the
+// prime is guaranteed visible before Fork appends the copied events to
+// the store (which is what makes those events reach this shard's queue
+// at all).
+type primeForkMsg struct {
+	runID         string
+	state         domain.RunState
+	definitionRef string
+	uptoSeq       int
+	done          chan struct{}
 }
 
 func newShard(e *Engine) *shard {
 	return &shard{
-		engine:  e,
-		queue:   make(chan events.Envelope, 256),
-		states:  make(map[string]domain.RunState),
-		defRefs: make(map[string]string),
+		engine:     e,
+		queue:      make(chan events.Envelope, 256),
+		states:     make(map[string]domain.RunState),
+		defRefs:    make(map[string]string),
+		primedUpTo: make(map[string]int),
+		primeCh:    make(chan primeForkMsg),
 	}
 }
 
@@ -38,6 +63,22 @@ func newShard(e *Engine) *shard {
 func (s *shard) prime(runID string, state domain.RunState, definitionRef string) {
 	s.states[runID] = state
 	s.defRefs[runID] = definitionRef
+}
+
+// primeForked is prime's live-loop-safe counterpart (Engine.Start is
+// already running, so this shard's state map is owned by its own
+// goroutine) — see primeForkMsg's doc comment.
+func (s *shard) primeForked(ctx context.Context, runID string, state domain.RunState, definitionRef string, uptoSeq int) {
+	done := make(chan struct{})
+	select {
+	case s.primeCh <- primeForkMsg{runID: runID, state: state, definitionRef: definitionRef, uptoSeq: uptoSeq, done: done}:
+	case <-ctx.Done():
+		return
+	}
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
 }
 
 // enqueue routes env to this shard's queue. Called from Engine's single
@@ -58,6 +99,11 @@ func (s *shard) run(ctx context.Context) {
 		case <-ctx.Done():
 			s.interruptExecuting()
 			return
+		case msg := <-s.primeCh:
+			s.states[msg.runID] = msg.state
+			s.defRefs[msg.runID] = msg.definitionRef
+			s.primedUpTo[msg.runID] = msg.uptoSeq
+			close(msg.done)
 		case env := <-s.queue:
 			s.process(ctx, env)
 		}
@@ -97,6 +143,16 @@ func (s *shard) interruptExecuting() {
 }
 
 func (s *shard) process(ctx context.Context, env events.Envelope) {
+	// L18's Fork already folded and dispatched this run's copied prefix
+	// once, synchronously, before appending it to the store — the live
+	// copies arriving here are the SAME events showing up a second time
+	// on the ordinary subscribe path, and must be dropped, not re-folded
+	// or (worse) re-dispatched into a second run of every node the
+	// original run already completed.
+	if up, primed := s.primedUpTo[env.StreamID]; primed && env.Sequence <= up {
+		return
+	}
+
 	if trigger, ok := env.Event.(domain.TriggerReceived); ok {
 		s.defRefs[env.StreamID] = trigger.DefinitionRef
 	}

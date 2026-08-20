@@ -617,6 +617,46 @@ idea what you just saved") is not yet true of this implementation.
 *Revisit:* a dedicated follow-on document, once the local-workspace file-watching and gate-hook
 machinery it needs has a natural home.
 
+**NL-46 · Fork's workspace restore uses only ADR 0006's git-ref layer, never the CoW tree layer.**
+`internal/workspace.SnapshotTree`/CoW probing (Linux `FICLONE`, real, tested) exist and run
+independently, but `Engine.Fork` restores a forked run's workspace via `RestoreGitRef` alone —
+tracked and untracked-non-ignored files exactly, per 06-durability.md's own "restorable
+approximately" table. Gitignored build state (`node_modules`, a warm `target/`) is never captured
+or restored by Fork today.
+*Blast radius:* a fork of a node whose value was a warm build cache pays for a full rebuild — an
+honest cost per ADR 0006's "Bad" section, not a correctness gap.
+*Mitigations:* none shipped; the git-ref layer alone already satisfies the documented
+"approximately" contract.
+*Detection:* a forked workspace's gitignored directories are simply absent.
+*Revisit:* wire `SnapshotTree`'s CoW/tar.zst output into the node-boundary snapshot hook and
+`Fork`'s restore path once a real fork-heavy workflow's rebuild cost justifies the complexity.
+
+**NL-47 · The debugger (breakpoints, step, variable injection) is not implemented.**
+12-build-plan.md names it only in prose ("the debugger (breakpoints, step, variable injection —
+each an attributable event)"), with no dedicated architecture-doc section specifying the actual
+mechanism — genuinely underspecified, not merely deferred. Building a speculative event/API surface
+for an unspecified interaction model would be exactly the kind of guessing AGENTS §4 rule 1 warns
+against.
+*Blast radius:* a failed run can be forked and re-run with `--set` overrides (a coarse substitute)
+but cannot be paused mid-node, inspected, and resumed with an injected value.
+*Mitigations:* `kairos fork --at <seq> --set k=v` covers the "retry with a different input" case at
+node-boundary granularity.
+*Detection:* no `kairos debug` verb exists.
+*Revisit:* once a concrete breakpoint/step/inject interaction model is specified (likely as its own
+short design note), following this document's event-sourced pattern: breakpoint hits, steps, and
+injections as real domain events, not ephemeral debugger-only state.
+
+**NL-48 · `kairos compare` never reports cost.**
+L07's admission checks an ESTIMATE against `dailyUSD`, never meters actual spend (NL-30) — there is
+no durably recorded real cost figure anywhere in the event log to compare. Reporting one would be
+fabricating it.
+*Blast radius:* "cost side by side" from 12-build-plan.md's compare description is one of four
+fields; three (duration, attempts, findings) are real today.
+*Mitigations:* none — this is downstream of NL-30, not a separate gap.
+*Detection:* `kairos compare`'s output has no cost row.
+*Revisit:* once real spend metering exists (NL-30's own revisit condition), compare gets a cost row
+for free — the summarization code already walks the full event log per run.
+
 **NL-13 · The audit log is not tamper-proof.**
 The agent can write `~/.kairos/kairos.db` unless G6–G9 are enabled.
 *Mitigations:* `guardrails-untouched` covers `~/.kairos/**` in the diff gate (**shipped**), refusing to

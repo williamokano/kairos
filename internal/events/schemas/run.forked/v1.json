@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["RunID", "FromRunID", "LineageRoot", "AtSequence"],
+  "properties": {
+    "RunID": { "type": "string", "minLength": 1 },
+    "FromRunID": { "type": "string", "minLength": 1 },
+    "LineageRoot": { "type": "string", "minLength": 1 },
+    "AtSequence": { "type": "integer" },
+    "Overrides": {
+      "type": ["object", "null"],
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

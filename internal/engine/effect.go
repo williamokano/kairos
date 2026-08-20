@@ -158,7 +158,8 @@ func (e *Engine) dispatchEffectActor(ctx context.Context, nd registry.NodeDef, c
 	defer e.releaseAndDrain(ctx, c.ExecID)
 
 	effectName := nd.Effects[0]
-	idempotencyKey := effect.IdempotencyKey(c.RunID, c.NodeID, effectName)
+	lineageRoot := e.lineageRootFor(ctx, c.RunID)
+	idempotencyKey := effect.IdempotencyKey(lineageRoot, c.NodeID, effectName)
 
 	if err := e.appendNext(ctx, c.RunID, domain.NodeExecutionStarted(c)); err != nil {
 		return err

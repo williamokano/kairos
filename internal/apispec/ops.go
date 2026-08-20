@@ -24,6 +24,8 @@ var Ops = []Op{
 	{Method: "GET", Path: "/runs/{id}/conversation", CLIVerb: "conversation show"},
 	{Method: "POST", Path: "/runs/{id}/conversation/messages", CLIVerb: "conversation send"},
 	{Method: "POST", Path: "/runs/{id}/approve", CLIVerb: "approve"},
+	{Method: "POST", Path: "/runs/{id}/fork", CLIVerb: "fork"},
+	{Method: "GET", Path: "/runs/{a}/compare/{b}", CLIVerb: "compare"},
 	{Method: "GET", Path: "/status", CLIVerb: "status"},
 	{Method: "GET", Path: "/doctor", CLIVerb: "doctor"},
 	{Method: "POST", Path: "/db/verify", CLIVerb: "db verify"},

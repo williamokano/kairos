@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["RunID", "NodeID", "ExecID", "AtSequence", "Label", "Kind", "Ref", "SHA"],
+  "properties": {
+    "RunID": { "type": "string", "minLength": 1 },
+    "NodeID": { "type": "string", "minLength": 1 },
+    "ExecID": { "type": "string", "minLength": 1 },
+    "AtSequence": { "type": "integer" },
+    "Label": { "type": "string" },
+    "Kind": { "type": "string", "enum": ["git", "git+tree"] },
+    "Ref": { "type": "string", "minLength": 1 },
+    "SHA": { "type": "string", "minLength": 1 }
+  }
+}

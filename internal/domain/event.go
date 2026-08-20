@@ -618,3 +618,56 @@ type ChildRunSpawned struct {
 
 func (ChildRunSpawned) EventType() string { return "child.run.spawned" }
 func (ChildRunSpawned) isEvent()          {}
+
+// WorkspaceSnapshotTaken records one out-of-band git-ref snapshot of a
+// workspace: write node's tree, taken at a node-completion boundary
+// (L18, ADR 0006). Ref is the exact refs/kairos/runs/<runID>/<seq> name;
+// SHA is the commit-tree object it points at. Run-scoped, never folded by
+// Advance (bookkeeping the engine/Fork read back from the log, matching
+// ChildRunsPlanned's posture) — Kind is "git" (this document's scope; a
+// future "git+tree" value is reserved for when tree-level CoW capture is
+// wired into this same event, per ADR 0006's two-layer design).
+type WorkspaceSnapshotTaken struct {
+	RunID, NodeID, ExecID string
+	AtSequence            int
+	Label                 string
+	Kind                  string // "git" today; "git+tree" reserved
+	Ref                   string
+	SHA                   string
+}
+
+func (WorkspaceSnapshotTaken) EventType() string { return "workspace.snapshot.taken" }
+func (WorkspaceSnapshotTaken) isEvent()          {}
+
+// RunForked is the first event a forked run's stream carries after its
+// copied event prefix (06-durability.md's "Fork and replay") — never
+// folded by Advance (bookkeeping, same posture as WorkspaceSnapshotTaken),
+// since the copied prefix has already fully re-established RunState by
+// the time this is appended. LineageRoot is FromRunID's own lineage root
+// (itself, if FromRunID was never forked) — internal/effect's
+// IdempotencyKey uses it so a fork's effect actions update the lineage's
+// external state rather than duplicating it.
+type RunForked struct {
+	RunID       string // the NEW run's id (this stream's own id)
+	FromRunID   string
+	LineageRoot string
+	AtSequence  int
+	Overrides   map[string]string
+}
+
+func (RunForked) EventType() string { return "run.forked" }
+func (RunForked) isEvent()          {}
+
+// ForkWorkspaceDrifted records that Fork proceeded past a missing
+// snapshot only because --allow-drift was passed (06-durability.md:
+// "--allow-drift snapshots now and records
+// fork.workspace.drifted{requestedSeq, actualSeq}") — on the NEW run's
+// own stream, since it is a fact about how that run came to exist.
+type ForkWorkspaceDrifted struct {
+	RunID        string
+	RequestedSeq int
+	ActualSeq    int
+}
+
+func (ForkWorkspaceDrifted) EventType() string { return "fork.workspace.drifted" }
+func (ForkWorkspaceDrifted) isEvent()          {}

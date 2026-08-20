@@ -59,7 +59,8 @@ func Advance(state RunState, ev Event, now time.Time) (RunState, []Cmd, error) {
 		LogDegraded, LogTruncated, ConstraintEvaluated,
 		WaiverGranted, EffectConfirmationRequested, EffectConfirmed,
 		EffectAttempted, EffectApplied, EffectFailed, EffectUnknown, EffectSimulated, EffectCompensated,
-		ChildRunsPlanned, ChildRunSpawned:
+		ChildRunsPlanned, ChildRunSpawned,
+		WorkspaceSnapshotTaken, RunForked, ForkWorkspaceDrifted:
 		// L08's audit-only facts, L09's log-backpressure facts, L10's
 		// per-gate ConstraintEvaluated, L11's waiver/effect-confirmation
 		// facts, L12's effect state-machine facts, and L17's spawn

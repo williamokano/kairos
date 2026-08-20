@@ -73,8 +73,11 @@ type Request struct {
 	Effect string
 	// IdempotencyKey makes Attempt/Probe/Compensate safe to call more
 	// than once for the same logical effect. See IdempotencyKey below;
-	// "lineage" is scoped to RunID until L17 gives run-forking real
-	// meaning (documented in L12-effects-compensation.md).
+	// the "runID" it's derived from is the lineage root
+	// (internal/engine's lineageRootFor, L18) — a forked run's own id
+	// until L18, now correctly the original ancestor's id, so a fork's
+	// effect actions update the lineage's external state rather than
+	// duplicating it.
 	IdempotencyKey string
 	// WorkDir is the git workspace (internal/workspace, L06) the effect
 	// operates in.

@@ -295,6 +295,17 @@ func projectFixture(eventType string, ev domain.Event) error {
 		}
 		_, err = advanceOK(state, ev)
 		return err
+	case "workspace.snapshot.taken", "run.forked", "fork.workspace.drifted":
+		// L18's fork/snapshot bookkeeping facts: folded as a no-op, same
+		// scenario as the L17 row above — a snapshot or a fork both
+		// concern a run that has already started (a fork's own copied
+		// prefix, or a snapshot taken at a node-completion boundary).
+		state, err := seedPending()
+		if err != nil {
+			return err
+		}
+		_, err = advanceOK(state, ev)
+		return err
 	default:
 		return fmt.Errorf("no fixture scenario registered for event type %q", eventType)
 	}

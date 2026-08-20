@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["RunID", "RequestedSeq", "ActualSeq"],
+  "properties": {
+    "RunID": { "type": "string", "minLength": 1 },
+    "RequestedSeq": { "type": "integer" },
+    "ActualSeq": { "type": "integer" }
+  }
+}

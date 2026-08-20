@@ -90,7 +90,7 @@ func (e *Engine) dispatchLLMActor(ctx context.Context, nd registry.NodeDef, c do
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
-		e.reapLLM(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, started.PID)
+		e.reapLLM(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, started.PID, nd.Workspace == registry.WorkspaceWrite)
 	}()
 	return nil
 }
@@ -220,7 +220,7 @@ func nativeResumeArgv(actorKind, sessionID string) []string {
 // top-level attempt, possibly on a mutated actor) are NOT this function's
 // job: Stage 4 is domain's own existing retry ladder, reached simply by
 // this function reporting SchemaValid: false like any other actor.
-func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, actorKind, workDir, dir, outputPath, schemaPath string, pid int) {
+func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, actorKind, workDir, dir, outputPath, schemaPath string, pid int, isWorkspaceWrite bool) {
 	defer e.releaseAndDrain(ctx, c.ExecID)
 	defer e.collectLogs(ctx, c.RunID, c.NodeID, c.ExecID, dir)
 
@@ -266,9 +266,11 @@ func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, actorKind, 
 	if inline != nil {
 		raw = json.RawMessage(inline)
 	}
-	_ = e.appendNext(ctx, c.RunID, domain.NodeOutputReceived{
+	if err := e.appendNext(ctx, c.RunID, domain.NodeOutputReceived{
 		RunID: c.RunID, NodeID: c.NodeID, ExecID: c.ExecID, SchemaValid: valid, Output: raw, OutputRef: ref,
-	})
+	}); err == nil && valid {
+		e.maybeSnapshotWorkspace(ctx, isWorkspaceWrite, c.RunID, c.NodeID, c.ExecID)
+	}
 }
 
 // repairTurn runs the CLI exactly once more, in the same workDir/session,
