@@ -44,7 +44,7 @@ func Advance(state RunState, ev Event, now time.Time) (RunState, []Cmd, error) {
 	case NodeExecutionInterrupted:
 		return advanceNodeExecutionInterrupted(state, e)
 	case NodeExecutionLost:
-		return advanceNodeExecutionLost(state, e)
+		return advanceNodeExecutionLost(state, e, now)
 	case NodeExecutionAdopted:
 		return advanceNodeExecutionAdopted(state, e)
 	case HumanTaskCreated:
@@ -256,7 +256,19 @@ func advanceNodeExecutionInterrupted(state RunState, e NodeExecutionInterrupted)
 	return state.withExecution(exec), nil, nil
 }
 
-func advanceNodeExecutionLost(state RunState, e NodeExecutionLost) (RunState, []Cmd, error) {
+// advanceNodeExecutionLost finalises exec as Lost and, like
+// handleFailureOutcome, either allocates the next retry attempt (bounded
+// by RetryPolicy.MaxAttempts) or routes via the node's failure edge once
+// attempts are exhausted. A node the reconciliation scan (L05) cannot
+// verify survived a restart is not different, for retry purposes, from
+// one that failed outright — both mean "this attempt produced no
+// confirmed outcome" — so Lost reuses the same bounded-retry shape
+// Failed already has, rather than requiring the engine to reimplement
+// retry/route logic outside domain (12-build-plan.md: "L05 (engine)...
+// decides when to dispatch a fresh NodeExecutionStarted for a Lost...
+// node", which this makes possible by feeding NodeExecutionLost back
+// through Advance like any other outcome event).
+func advanceNodeExecutionLost(state RunState, e NodeExecutionLost, now time.Time) (RunState, []Cmd, error) {
 	if !legalRunEvent(state.Status, e.EventType()) {
 		return state, nil, ErrIllegalTransition
 	}
@@ -267,8 +279,18 @@ func advanceNodeExecutionLost(state RunState, e NodeExecutionLost) (RunState, []
 	if !legalExecEvent(exec.Status, e.EventType()) {
 		return state, nil, ErrIllegalTransition
 	}
+
 	exec.Status = ExecLost
-	return state.withExecution(exec), nil, nil
+	state = state.withExecution(exec)
+
+	node, ok := state.Graph.NodeByID(exec.NodeID)
+	if !ok {
+		return state, nil, ErrUnknownNode
+	}
+	if exec.Attempt < node.Retry.MaxAttempts {
+		return dispatchExec(state, node, exec.Attempt+1, exec.Iteration, exec.ExecID)
+	}
+	return routeViaEdge(state, exec.NodeID, OnFailure, now)
 }
 
 func advanceNodeExecutionAdopted(state RunState, e NodeExecutionAdopted) (RunState, []Cmd, error) {

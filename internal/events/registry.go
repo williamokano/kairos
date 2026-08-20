@@ -190,6 +190,14 @@ func derefEvent(ev domain.Event) domain.Event {
 		return *e
 	case *domain.HumanTaskAnswered:
 		return *e
+	case *domain.EngineStarted:
+		return *e
+	case *domain.EngineStopped:
+		return *e
+	case *domain.EngineReconciled:
+		return *e
+	case *domain.ProcessOrphanReaped:
+		return *e
 	default:
 		return ev
 	}

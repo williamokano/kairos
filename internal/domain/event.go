@@ -198,3 +198,48 @@ type HumanTaskAnswered struct {
 
 func (HumanTaskAnswered) EventType() string { return "human.task.answered" }
 func (HumanTaskAnswered) isEvent()          {}
+
+// The four events below are additive, L05-introduced facts recorded to a
+// separate "system" stream, not any run's stream — they have no RunID and
+// Advance never folds them (RunState has no case for them; nothing calls
+// Advance with one). Event only requires EventType()/isEvent(), neither of
+// which mandates a RunID, so this is a pure addition, not a change to any
+// existing type (AGENTS.md §4 rule 6).
+
+// EngineStarted records a daemon boot, appended before reconciliation runs.
+type EngineStarted struct {
+	BootID string
+}
+
+func (EngineStarted) EventType() string { return "engine.started" }
+func (EngineStarted) isEvent()          {}
+
+// EngineStopped records a clean daemon shutdown — its absence as the last
+// system-stream event is how the next boot detects an unclean exit
+// (06-durability.md).
+type EngineStopped struct{}
+
+func (EngineStopped) EventType() string { return "engine.stopped" }
+func (EngineStopped) isEvent()          {}
+
+// EngineReconciled records that startup reconciliation finished — the
+// readiness gate: the daemon does not start serving the API until this
+// event exists in the system stream (09-cli-and-tui.md: "readiness flips
+// only after engine.reconciled appears").
+type EngineReconciled struct {
+	Recovered     int
+	Lost          int
+	OrphansReaped int
+}
+
+func (EngineReconciled) EventType() string { return "engine.reconciled" }
+func (EngineReconciled) isEvent()          {}
+
+// ProcessOrphanReaped records a process group found alive at boot with no
+// owning non-terminal NodeExecution, killed by reconciliation's orphan scan.
+type ProcessOrphanReaped struct {
+	PGID int
+}
+
+func (ProcessOrphanReaped) EventType() string { return "process.orphan.reaped" }
+func (ProcessOrphanReaped) isEvent()          {}

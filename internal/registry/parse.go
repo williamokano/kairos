@@ -38,6 +38,8 @@ type yamlNode struct {
 	Spawn           *yamlSpawn     `json:"spawn"`
 	Join            *yamlJoin      `json:"join"`
 	Optional        bool           `json:"optional"`
+	SideEffectFree  bool           `json:"sideEffectFree"`
+	RestartPolicy   string         `json:"restartPolicy"`
 }
 
 type yamlResources struct {

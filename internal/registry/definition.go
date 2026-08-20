@@ -62,7 +62,39 @@ type NodeDef struct {
 	// (success/failure/timeout/rejected/denied -> node ID), consulted by
 	// resolveEdges before it falls back to the document-order default.
 	On map[domain.EdgeTrigger]domain.NodeID
+
+	// SideEffectFree is the author's declaration that re-running this
+	// node from scratch is safe — it drives RestartPolicy's default
+	// (12-build-plan.md: "restartPolicy: rerun ... default when
+	// sideEffectFree: true", "fail-to-human ... default when
+	// sideEffectFree is unset or false"). Restart policy is a
+	// dispatch-time engine concern read off the Definition by
+	// DefinitionRef, not a domain.Advance routing concern — it lives
+	// here, not on domain.Node.
+	SideEffectFree bool
+	// RestartPolicy is resolved from SideEffectFree (or an explicit
+	// author override) at defaulting time — see RestartPolicy's doc.
+	RestartPolicy RestartPolicy
 }
+
+// RestartPolicy names how the engine treats a NodeExecution the log says
+// was Executing when the daemon restarts (12-build-plan.md).
+type RestartPolicy string
+
+const (
+	// RestartRerun re-dispatches the node from scratch. Default when
+	// SideEffectFree is true; safe because re-running costs nothing
+	// side-effect-wise by the author's own declaration.
+	RestartRerun RestartPolicy = "rerun"
+	// RestartFailToHuman parks the node (ExecParked{ParkNonIdempotentAtBoot})
+	// rather than guessing. Default when SideEffectFree is unset or false.
+	RestartFailToHuman RestartPolicy = "fail-to-human"
+	// RestartAdopt re-attaches to a surviving process. Requires L06's
+	// reconciliation-loop machinery; parsed but rejected at validate time
+	// in L05 (12-build-plan.md: "adopt in L06, once the reconciliation
+	// loop it plugs into is proven").
+	RestartAdopt RestartPolicy = "adopt"
+)
 
 // WorkspaceMode mirrors 03-workflows.md's workspace: none | read | write.
 type WorkspaceMode string

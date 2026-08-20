@@ -24,6 +24,15 @@ func requiresOutputSchema(actor string) bool {
 	if len(actor) >= 8 && actor[:8] == "builtin." {
 		return false
 	}
+	// "rule" is L05's placeholder actor (12-build-plan.md's milestone
+	// spec only — see internal/engine/actor_rule.go's doc comment): it
+	// always succeeds with a trivial in-process output and never
+	// validates it against a declared schema, so requiring one here
+	// would be a requirement with no effect. Not in 03-workflows.md's
+	// actor enum at all.
+	if actor == "rule" {
+		return false
+	}
 	return true
 }
 
@@ -112,6 +121,7 @@ func defaultNode(yn yamlNode, rn raw) (NodeDef, error) {
 		Gates:           yn.Gates, // decision #6: no default library, empty when omitted
 		Effects:         yn.Effects,
 		Optional:        yn.Optional,
+		SideEffectFree:  yn.SideEffectFree,
 	}
 	if nd.Workspace == "" {
 		nd.Workspace = WorkspaceRead
@@ -121,6 +131,15 @@ func defaultNode(yn yamlNode, rn raw) (NodeDef, error) {
 	}
 	if nd.Effects == nil {
 		nd.Effects = []string{}
+	}
+
+	nd.RestartPolicy = RestartPolicy(yn.RestartPolicy)
+	if nd.RestartPolicy == "" {
+		if nd.SideEffectFree {
+			nd.RestartPolicy = RestartRerun
+		} else {
+			nd.RestartPolicy = RestartFailToHuman
+		}
 	}
 
 	timeout, err := parseDuration(yn.Timeout, 30*time.Minute)

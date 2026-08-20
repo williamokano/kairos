@@ -1,0 +1,27 @@
+name: milestone
+nodes:
+  - id: n1
+    actor: rule
+    output: { x: "string" }
+
+  - id: n2
+    actor: shell
+    sideEffectFree: true
+    retry:
+      maxAttempts: 2
+    prompt: |
+      echo $$ > "$KAIROS_RUN_DIR/n2.pid"
+      sleep 30
+      echo '{"done":true}' > "$KAIROS_OUTPUT_PATH"
+    output: { done: "bool!" }
+
+  - id: n3
+    actor: shell
+    prompt: |
+      grep -qxF "n3-done" "$KAIROS_RUN_DIR/ledger.txt" 2>/dev/null || echo "n3-done" >> "$KAIROS_RUN_DIR/ledger.txt"
+      echo '{"ok":true}' > "$KAIROS_OUTPUT_PATH"
+    output: { ok: "bool!" }
+
+  - id: n4
+    actor: rule
+    output: { x: "string" }

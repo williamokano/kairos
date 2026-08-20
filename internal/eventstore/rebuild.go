@@ -121,6 +121,12 @@ func (s *store) Verify(ctx context.Context) (VerifyReport, error) {
 
 	scratch := map[string]domain.RunState{} // run_id -> folded state, in memory only
 	for _, env := range envs {
+		if env.StreamID == SystemStream {
+			// Non-run-scoped facts (L05's engine.*/process.orphan.reaped)
+			// — domain.Advance has no case for them and none is needed;
+			// see SystemStream's doc comment.
+			continue
+		}
 		next, _, err := domain.Advance(scratch[env.StreamID], env.Event, env.OccurredAt)
 		if err != nil {
 			return VerifyReport{}, fmt.Errorf("replaying %s at global_seq %d: %w", env.EventType, env.GlobalSeq, err)

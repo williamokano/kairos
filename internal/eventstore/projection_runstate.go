@@ -33,6 +33,12 @@ func (RunStateProjection) Reset(ctx context.Context, tx *sql.Tx) error {
 }
 
 func (RunStateProjection) Apply(ctx context.Context, tx *sql.Tx, env events.Envelope) error {
+	if env.StreamID == SystemStream {
+		// Non-run-scoped facts (L05's engine.*/process.orphan.reaped) —
+		// domain.Advance has no case for them and none is needed; see
+		// SystemStream's doc comment.
+		return nil
+	}
 	state, err := loadRunState(ctx, tx, env.StreamID)
 	if err != nil {
 		return err

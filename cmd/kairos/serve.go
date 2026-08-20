@@ -7,31 +7,51 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/williamokano/kairos/internal/api"
 	"github.com/williamokano/kairos/internal/cli"
 	"github.com/williamokano/kairos/internal/config"
+	"github.com/williamokano/kairos/internal/engine"
 	"github.com/williamokano/kairos/internal/events"
 	"github.com/williamokano/kairos/internal/eventstore"
+	"github.com/williamokano/kairos/internal/executor/local"
 )
 
 // serve is the daemon boot sequence, injected into internal/cli as a
 // cli.ServeFunc. It lives here rather than in internal/cli because it
-// must import internal/api — and dependencyDirection's "nothing imports
-// internal/api" rule holds for every other package, cmd/kairos included
-// in spirit but exempted in practice as the binary's own composition
-// root, the same posture already held for os.Exit/os/exec/syscall.
+// must import internal/api and internal/engine — and dependencyDirection's
+// "nothing imports internal/api" rule holds for every other package,
+// cmd/kairos included in spirit but exempted in practice as the binary's
+// own composition root, the same posture already held for
+// os.Exit/os/exec/syscall.
 //
 // Boot order: claim the PID-file lock (decision #2 — no syscall.Flock;
-// that's reserved to internal/executor/local, which doesn't exist until
-// L06), load config, open the event store (already migrates + verifies
-// projections, L02), toolchain-presence checks (decision #6, run here
-// since only this file may call exec.LookPath), then bind and serve the
-// API until ctx is cancelled.
-func serve(ctx context.Context) error {
+// that's reserved to internal/executor/local), load config, open the
+// event store (already migrates + verifies projections, L02), toolchain-
+// presence checks (decision #6, run here since only this file may call
+// exec.LookPath), construct the engine and run Reconcile to completion —
+// the API does not start serving until engine.reconciled exists
+// (09-cli-and-tui.md) — then start the live advance loop and bind/serve
+// the API until SIGINT/SIGTERM.
+//
+// SIGINT/SIGTERM (Ctrl-C, `kairos down`) trigger a clean shutdown:
+// engine.Stop records NodeExecutionInterrupted for every in-flight node
+// BEFORE killing its process group (12-build-plan.md), then this
+// function returns within a few seconds. SIGKILL to the daemon itself is
+// not caught — children survive it (Setpgid detaches them from the
+// daemon's process group), and the NEXT boot's Reconcile is what recovers
+// them; that asymmetry is the whole reason both
+// TestEngine_survivesKillMidRun and TestEngine_ctrlCInterruptsThenResumes
+// exist as separate tests.
+func serve(parentCtx context.Context) error {
+	ctx, stop := signal.NotifyContext(parentCtx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -63,6 +83,24 @@ func serve(ctx context.Context) error {
 	}
 	defer func() { _ = store.Close() }()
 
+	eng := engine.New(engine.Config{
+		Store:     store,
+		Executor:  local.New(local.DefaultBootIDProvider()),
+		BootID:    local.DefaultBootIDProvider(),
+		WorkRoot:  filepath.Join(cfg.Home, "work"),
+		KillGrace: 10 * time.Second,
+	})
+
+	// Reconciliation must complete before the API starts serving —
+	// "readiness flips only after engine.reconciled appears"
+	// (09-cli-and-tui.md).
+	if _, err := eng.Reconcile(ctx); err != nil {
+		return fmt.Errorf("reconciling: %w", err)
+	}
+	if err := eng.Start(ctx); err != nil {
+		return fmt.Errorf("starting engine: %w", err)
+	}
+
 	deps := api.Deps{
 		Store:        store,
 		DoctorChecks: toolchainChecks(),
@@ -85,7 +123,10 @@ func serve(ctx context.Context) error {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return srv.Shutdown(shutdownCtx)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		return eng.Stop(shutdownCtx)
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil

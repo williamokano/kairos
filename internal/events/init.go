@@ -40,6 +40,12 @@ var builtins = []builtinEvent{
 	{"node.execution.adopted", 1, func() domain.Event { return &domain.NodeExecutionAdopted{} }},
 	{"human.task.created", 1, func() domain.Event { return &domain.HumanTaskCreated{} }},
 	{"human.task.answered", 1, func() domain.Event { return &domain.HumanTaskAnswered{} }},
+	// L05-introduced, additive, system-stream events (event.go's doc
+	// comment on them explains why they have no RunID).
+	{"engine.started", 1, func() domain.Event { return &domain.EngineStarted{} }},
+	{"engine.stopped", 1, func() domain.Event { return &domain.EngineStopped{} }},
+	{"engine.reconciled", 1, func() domain.Event { return &domain.EngineReconciled{} }},
+	{"process.orphan.reaped", 1, func() domain.Event { return &domain.ProcessOrphanReaped{} }},
 }
 
 // Builtin returns a Registry with every domain.Event type L01 defined,

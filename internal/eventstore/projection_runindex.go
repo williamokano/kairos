@@ -29,6 +29,9 @@ func (RunIndexProjection) Reset(ctx context.Context, tx *sql.Tx) error {
 }
 
 func (RunIndexProjection) Apply(ctx context.Context, tx *sql.Tx, env events.Envelope) error {
+	if env.StreamID == SystemStream {
+		return nil
+	}
 	var status string
 	err := tx.QueryRowContext(ctx, `SELECT status FROM run_state_projection WHERE run_id = ?`, env.StreamID).Scan(&status)
 	if errors.Is(err, sql.ErrNoRows) {

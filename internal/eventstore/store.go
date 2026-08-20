@@ -24,6 +24,13 @@ import (
 // stream's actual current sequence — the CAS lost.
 var ErrConflict = errors.New("eventstore: append conflict")
 
+// SystemStream is the stream_id L05's engine appends non-run-scoped facts
+// to (EngineStarted, EngineStopped, EngineReconciled, ProcessOrphanReaped)
+// — no new SQL table, reusing the events table. Both built-in projections
+// skip it: it has no RunState to fold into (domain.Advance has no case
+// for these event types, by design — see internal/domain/event.go).
+const SystemStream = "system"
+
 // AppendMeta is audit metadata shared by every event in one AppendIf call.
 // It is per-batch, not per-event: the caller (from L05 on) is a single
 // engine decision producing a causally-related set of facts, and no

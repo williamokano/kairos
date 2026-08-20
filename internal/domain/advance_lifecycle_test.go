@@ -129,8 +129,18 @@ func TestAdvance_waitSpecWithTimeoutAlwaysArmsATimer(t *testing.T) {
 	}
 }
 
-func TestAdvance_killMidNodeThenRestartRecordsLostAsTerminal(t *testing.T) {
-	g := singleNodeGraph("build")
+// TestAdvance_killMidNodeThenRestartRecordsLostThenRetries mirrors the L05
+// milestone's exact expectation (12-build-plan.md): a node the
+// reconciliation scan cannot verify survived a restart is not different,
+// for retry purposes, from one that failed outright — NodeExecutionLost
+// finalises the current attempt as terminal Lost and, exactly like
+// NodeExecutionFailed, either allocates the next attempt (bounded by
+// RetryPolicy.MaxAttempts) or routes via the failure edge once attempts
+// are exhausted. This is what lets the engine (L05) re-dispatch a fresh
+// NodeExecutionStarted purely by feeding NodeExecutionLost back through
+// Advance, with no engine-side retry logic of its own.
+func TestAdvance_killMidNodeThenRestartRecordsLostThenRetries(t *testing.T) {
+	g := singleNodeGraph("build") // MaxAttempts: 2
 	state := startedRun(t, g)
 	exec, _ := state.current("build")
 
@@ -145,23 +155,57 @@ func TestAdvance_killMidNodeThenRestartRecordsLostAsTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NodeExecutionLost: %v", err)
 	}
-	if cmds != nil {
-		t.Errorf("expected no cmds from NodeExecutionLost itself, got %v", cmds)
+
+	execs := state.Executions["build"]
+	if len(execs) != 2 {
+		t.Fatalf("Executions[build] = %v, want 2 rows (lost attempt 1 + the retried attempt 2)", execs)
 	}
-	got, _ := state.current("build")
-	if got.Status != ExecLost {
-		t.Fatalf("Status = %s, want %s", got.Status, ExecLost)
+	if execs[0].Status != ExecLost || !execs[0].Status.Terminal() {
+		t.Errorf("attempt 1 = %+v, want terminal Status=lost", execs[0])
 	}
-	if !got.Status.Terminal() {
-		t.Error("expected ExecLost to be Terminal")
+	if execs[1].Status != ExecPending || execs[1].Attempt != 2 || execs[1].PriorExecID != execs[0].ExecID {
+		t.Errorf("attempt 2 = %+v, want Status=pending Attempt=2 PriorExecID=%s", execs[1], execs[0].ExecID)
 	}
 
-	// L05's rerun policy dispatches a fresh attempt for the lost node; the
-	// engine mints the new NodeExecutionStarted itself once it decides to
-	// retry (out of L01's scope) — domain only needs to accept it.
-	retried := NodeExecutionStarted{RunID: testRunID, NodeID: "build", ExecID: execID("build", 2, 1), Attempt: 2, Iteration: 1}
-	_, _, err = Advance(state, retried, time.Unix(101, 0))
-	if err == nil {
-		t.Fatal("expected an error: NodeExecutionStarted for an exec ID that has no matching Pending row")
+	start, ok := cmds[0].(CmdStartNode)
+	if !ok || start.Attempt != 2 {
+		t.Fatalf("cmds[0] = %+v, want CmdStartNode{Attempt: 2}", cmds[0])
+	}
+
+	// The engine confirms the retry exactly like any other dispatch — no
+	// special-casing needed for a retry born from Lost vs from Failed.
+	state, _, err = Advance(state, NodeExecutionStarted{RunID: testRunID, NodeID: "build", ExecID: start.ExecID, Attempt: 2, Iteration: 1}, time.Unix(101, 0))
+	if err != nil {
+		t.Fatalf("confirming the retried attempt: %v", err)
+	}
+	got, _ := state.current("build")
+	if got.Status != ExecExecuting {
+		t.Errorf("Status = %s, want %s", got.Status, ExecExecuting)
+	}
+}
+
+// TestAdvance_lostRoutesToFailOnceAttemptsAreExhausted is the boundary
+// case: MaxAttempts: 1 means the very first Lost verdict already
+// exhausts retries, so recovery must route to $fail rather than loop.
+func TestAdvance_lostRoutesToFailOnceAttemptsAreExhausted(t *testing.T) {
+	g := singleNodeGraph("build")
+	g.Nodes[0].Retry = RetryPolicy{MaxAttempts: 1}
+	state := startedRun(t, g)
+	exec, _ := state.current("build")
+
+	state, _, err := Advance(state, NodeExecutionStarted{RunID: testRunID, NodeID: "build", ExecID: exec.ExecID}, time.Unix(0, 0))
+	if err != nil {
+		t.Fatalf("NodeExecutionStarted: %v", err)
+	}
+
+	state, cmds, err := Advance(state, NodeExecutionLost{RunID: testRunID, NodeID: "build", ExecID: exec.ExecID}, time.Unix(100, 0))
+	if err != nil {
+		t.Fatalf("NodeExecutionLost: %v", err)
+	}
+	if cmds != nil {
+		t.Errorf("expected no cmds once routed to $fail, got %v", cmds)
+	}
+	if state.Status != RunFailed {
+		t.Errorf("run Status = %s, want %s", state.Status, RunFailed)
 	}
 }

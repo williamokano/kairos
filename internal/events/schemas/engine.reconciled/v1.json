@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["Recovered", "Lost", "OrphansReaped"],
+  "properties": {
+    "Recovered": { "type": "integer", "minimum": 0 },
+    "Lost": { "type": "integer", "minimum": 0 },
+    "OrphansReaped": { "type": "integer", "minimum": 0 }
+  }
+}

@@ -208,6 +208,12 @@ func projectFixture(eventType string, ev domain.Event) error {
 		}
 		_, err = advanceOK(state, ev)
 		return err
+	case "engine.started", "engine.stopped", "engine.reconciled", "process.orphan.reaped":
+		// System-stream events: not run-scoped, never folded through
+		// domain.Advance (see event.go's doc comment on them). "Projects"
+		// here just means the decode succeeded — there is no RunState to
+		// fold into.
+		return nil
 	default:
 		return fmt.Errorf("no fixture scenario registered for event type %q", eventType)
 	}
