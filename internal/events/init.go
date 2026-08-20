@@ -61,6 +61,11 @@ var builtins = []builtinEvent{
 	// L10-introduced, run-scoped per-gate audit fact (event.go's doc
 	// comment) — same posture as the two rows above.
 	{"constraint.evaluated", 1, func() domain.Event { return &domain.ConstraintEvaluated{} }},
+	// L11-introduced, run-scoped waiver/effect-confirmation facts
+	// (event.go's doc comments) — same posture as the rows above.
+	{"waiver.grant", 1, func() domain.Event { return &domain.WaiverGranted{} }},
+	{"effect.confirmation.requested", 1, func() domain.Event { return &domain.EffectConfirmationRequested{} }},
+	{"effect.confirmed", 1, func() domain.Event { return &domain.EffectConfirmed{} }},
 }
 
 // Builtin returns a Registry with every domain.Event type L01 defined,

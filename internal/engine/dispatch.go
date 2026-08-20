@@ -42,11 +42,17 @@ func (e *Engine) dispatch(ctx context.Context, definitionRef string, cmd domain.
 	}
 }
 
+// loadDefinition resolves the constitution (L11: kairos/baseline +
+// e.constitutionProjectPath) on every call, merging its gate library into
+// def.Gates and attaching MandatoryBaselineGateIDs to every node. The
+// repo-level layer (05-gates.md's third tier, hash-pinned at run start)
+// is resolved separately by evaluateGates once a workspace directory is
+// known — see gates.go's mergeRepoConstitution.
 func (e *Engine) loadDefinition(definitionRef string) (registry.Definition, error) {
 	if definitionRef == "" {
 		return registry.Definition{}, fmt.Errorf("engine: empty definitionRef")
 	}
-	return registry.Load(definitionRef)
+	return registry.LoadWithConstitution(definitionRef, "", e.constitutionProjectPath)
 }
 
 func (e *Engine) dispatchStartNode(ctx context.Context, definitionRef string, c domain.CmdStartNode) error {
@@ -57,6 +63,17 @@ func (e *Engine) dispatchStartNode(ctx context.Context, definitionRef string, c 
 	nd, actor, found := resolveNodeActor(def, c)
 	if !found {
 		return fmt.Errorf("node %q not found in definition %s", c.NodeID, definitionRef)
+	}
+
+	// L11: policy answers "may this actor cause this outward mutation?"
+	// before admission even runs — a denied or unconfirmed effect means
+	// there is nothing to admit. See checkEffects's doc comment for this
+	// document's synchronous-check scope (not the full pause-and-resume
+	// confirmation flow).
+	if blocked, err := e.checkEffects(ctx, c, nd); err != nil {
+		return err
+	} else if blocked {
+		return nil
 	}
 
 	// L07: admission answers "may it start right now?" before any actor
@@ -186,10 +203,18 @@ func (e *Engine) appendNodeFailed(ctx context.Context, runID, nodeID, execID str
 // dispatchStartNode's comment on why NodeExecutionStarted must be
 // appended first for a Denied outcome.
 func (e *Engine) denyNode(ctx context.Context, c domain.CmdStartNode, reason string) error {
+	return e.denyNodeWithReason(ctx, c, domain.FailFailure, reason)
+}
+
+// denyNodeWithReason is denyNode with a caller-chosen FailReason — L11's
+// policy checks (internal/engine/policy.go) use domain.FailPolicyDenied
+// so a policy denial is distinguishable from an admission denial or an
+// ordinary actor failure, both of which stay FailFailure.
+func (e *Engine) denyNodeWithReason(ctx context.Context, c domain.CmdStartNode, reason domain.FailReason, message string) error {
 	if err := e.appendNext(ctx, c.RunID, domain.NodeExecutionStarted(c)); err != nil {
 		return err
 	}
-	return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure, "denied: "+reason)
+	return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, reason, "denied: "+message)
 }
 
 func (e *Engine) appendInterrupted(ctx context.Context, runID, nodeID, execID string) error {

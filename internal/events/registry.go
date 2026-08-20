@@ -212,6 +212,12 @@ func derefEvent(ev domain.Event) domain.Event {
 		return *e
 	case *domain.ConstraintEvaluated:
 		return *e
+	case *domain.WaiverGranted:
+		return *e
+	case *domain.EffectConfirmationRequested:
+		return *e
+	case *domain.EffectConfirmed:
+		return *e
 	default:
 		return ev
 	}

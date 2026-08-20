@@ -52,9 +52,11 @@ func Advance(state RunState, ev Event, now time.Time) (RunState, []Cmd, error) {
 	case HumanTaskAnswered:
 		return advanceHumanTaskAnswered(state, e, now)
 	case LLMSessionStarted, SessionResumeFailed, SessionCostUnavailable, OutputRepairAttempted,
-		LogDegraded, LogTruncated, ConstraintEvaluated:
-		// L08's audit-only facts, L09's log-backpressure facts, and L10's
-		// per-gate ConstraintEvaluated: they
+		LogDegraded, LogTruncated, ConstraintEvaluated,
+		WaiverGranted, EffectConfirmationRequested, EffectConfirmed:
+		// L08's audit-only facts, L09's log-backpressure facts, L10's
+		// per-gate ConstraintEvaluated, and L11's waiver/effect-confirmation
+		// facts: they
 		// record something true about a NodeExecution's actor invocation
 		// without moving it through any state the run's routing cares
 		// about (ExecStatus is untouched). Explicit no-op cases rather

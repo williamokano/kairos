@@ -27,15 +27,21 @@ type Definition struct {
 	Gates map[string]GateDef
 }
 
-// GateKind is one of the phase-0 slice's two implemented gate kinds.
-// 05-gates.md specifies ten; the other eight (file/regex/git-diff/
-// coverage/judged, plus the three non-code domain kinds) are Future work
-// — see L10-constraints-gates.md.
+// GateKind is one of 05-gates.md's ten kinds. L10 implemented expr and
+// command; L11 adds file, regex, git-diff, coverage, and judged — the
+// three non-code domain kinds (grounded/recipients/outbound-scan) stay
+// Future work, specified in 13-domains.md and out of this document's
+// scope (see L11-policy-secrets.md's Documented decisions).
 type GateKind string
 
 const (
-	GateExpr    GateKind = "expr"
-	GateCommand GateKind = "command"
+	GateExpr     GateKind = "expr"
+	GateCommand  GateKind = "command"
+	GateFile     GateKind = "file"
+	GateRegex    GateKind = "regex"
+	GateGitDiff  GateKind = "git-diff"
+	GateCoverage GateKind = "coverage"
+	GateJudged   GateKind = "judged"
 )
 
 // GateDef is one `gates:` entry — a node references it by ID via its own
@@ -61,12 +67,51 @@ type GateDef struct {
 	// from 05-gates.md's literal JSONPath examples.
 	Expr string
 
-	// Command fields, present when Kind == GateCommand.
+	// Command fields, present when Kind == GateCommand. Also reused by
+	// GateCoverage (Command is the coverage-run command; see CoverageThen).
 	Command        []string
 	Workdir        string        // relative to the node's workspace; absolute paths rejected at validate time
 	ExpectExitCode int           // defaults to 0
 	Timeout        time.Duration // 0 means no timeout
 	FindingsFormat string        // e.g. "golangci-json"; empty means no findings adapter
+
+	// File fields, present when Kind == GateFile.
+	FileExists []string // glob patterns, rooted at the workspace, that must each match at least one file
+	FileAbsent []string // glob patterns that must match nothing
+
+	// Regex fields, present when Kind == GateRegex.
+	RegexOver    string   // "added-lines" is the only supported value in this document's scope (see Documented decisions)
+	RegexAbsent  string   // a match on any selected line fails the gate
+	RegexExclude []string // glob patterns; files matching any are skipped
+
+	// GitDiff fields, present when Kind == GateGitDiff.
+	GitDiffPathsForbidden []string
+	GitDiffMustTouch      []string
+	GitDiffMaxFiles       int // 0 means unbounded
+	GitDiffMaxLines       int // 0 means unbounded
+	GitDiffNoBinary       bool
+	GitDiffDirty          *bool // non-nil: assert working-tree dirty state equals *GitDiffDirty
+	GitDiffStaged         *bool // non-nil: assert staged state equals *GitDiffStaged
+
+	// Coverage fields, present when Kind == GateCoverage. Command (above)
+	// runs first; CoverageThen runs second and its stdout is where
+	// CoverageCaptureRegex is applied. Baseline-vs-base-ref comparison
+	// (05-gates.md's `baseline: git`) is Future work — see
+	// L11-policy-secrets.md's Documented decisions.
+	CoverageThen         []string
+	CoverageCaptureRegex string
+	CoverageMin          float64
+
+	// Judged fields, present when Kind == GateJudged.
+	JudgeActors   []string // the "from" list; JudgeQuorumOf of these must agree
+	JudgeQuorumOf int
+	JudgeLens     string
+	// JudgeFraming is always "refutation" in this document's scope — the
+	// only framing 05-gates.md's own example uses and the only one that
+	// carries the "default to inconclusive" property the doc calls "the
+	// whole trick." Parsed and validated so a workflow author who writes
+	// something else gets a publish error, not silent reinterpretation.
+	JudgeFraming string
 }
 
 // NodeDef is one node's full authored shape.

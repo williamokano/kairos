@@ -16,6 +16,7 @@ import (
 	"github.com/williamokano/kairos/internal/events"
 	"github.com/williamokano/kairos/internal/eventstore"
 	"github.com/williamokano/kairos/internal/executor/local"
+	"github.com/williamokano/kairos/internal/policy"
 	"github.com/williamokano/kairos/internal/workspace"
 )
 
@@ -61,6 +62,25 @@ type Config struct {
 	// zero-value Config disables every capacity rule (unlimited) — see
 	// admission.New's doc comment.
 	Admission admission.Config
+
+	// ConstitutionProjectPath is 05-gates.md's authoritative,
+	// outside-every-workspace layer:
+	// ~/.kairos/projects/<project>/constitution.yaml. Empty means no
+	// project-level gate overrides — only kairos/baseline and a workflow's
+	// own inline gates: apply.
+	ConstitutionProjectPath string
+	// Policy is 05-gates.md's effect-permission tiers
+	// (~/.kairos/policy.yaml), consulted before a node with declared
+	// Effects is dispatched. A zero-value Policy (no Effects map) resolves
+	// via policy.Policy's own Decide default: unknown effect -> deny.
+	Policy policy.Policy
+	// BaseRef is the run's base ref for git-diff/regex(added-lines) gate
+	// kinds (05-gates.md's `{{ .base }}` — never a hardcoded
+	// "origin/main"). Empty means those gate kinds fail loudly rather
+	// than guessing one. Per-run base-ref selection is Future work (see
+	// L11-policy-secrets.md) — this is one daemon-wide default, matching
+	// WorkspaceRepo's existing single-repo scope from L06.
+	BaseRef string
 }
 
 // Engine is the advance loop: Store.Subscribe -> domain.Advance -> dispatch.
@@ -76,6 +96,10 @@ type Engine struct {
 	killGrace     time.Duration
 	numShards     int
 	log           *slog.Logger
+
+	constitutionProjectPath string
+	policy                  policy.Policy
+	baseRef                 string
 
 	admit       *admission.Manager
 	constraints *constraint.Evaluator
@@ -144,8 +168,12 @@ func New(cfg Config) *Engine {
 		log:           cfg.Logger,
 		admit:         admission.New(cfg.Admission),
 		claims:        make(map[string]admission.Claims),
+
+		constitutionProjectPath: cfg.ConstitutionProjectPath,
+		policy:                  cfg.Policy,
+		baseRef:                 cfg.BaseRef,
 	}
-	e.constraints = constraint.New(cfg.Executor, e.admit)
+	e.constraints = constraint.New(cfg.Executor, e.admit).WithJudge(e)
 	e.shards = make([]*shard, e.numShards)
 	for i := range e.shards {
 		e.shards[i] = newShard(e)

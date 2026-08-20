@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["RunID", "NodeID", "GateID", "Reason", "ExpiresAt", "GrantedBy"],
+  "properties": {
+    "RunID": { "type": "string", "minLength": 1 },
+    "NodeID": { "type": "string", "minLength": 1 },
+    "GateID": { "type": "string", "minLength": 1 },
+    "Reason": { "type": "string", "minLength": 1 },
+    "ExpiresAt": { "type": "string", "format": "date-time" },
+    "GrantedBy": { "type": "string", "const": "human" }
+  }
+}

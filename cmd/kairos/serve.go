@@ -21,6 +21,7 @@ import (
 	"github.com/williamokano/kairos/internal/events"
 	"github.com/williamokano/kairos/internal/eventstore"
 	"github.com/williamokano/kairos/internal/executor/local"
+	"github.com/williamokano/kairos/internal/policy"
 )
 
 // serve is the daemon boot sequence, injected into internal/cli as a
@@ -84,6 +85,11 @@ func serve(parentCtx context.Context) error {
 	}
 	defer func() { _ = store.Close() }()
 
+	pol, err := policy.Load(cfg.PolicyPath)
+	if err != nil {
+		return fmt.Errorf("loading policy: %w", err)
+	}
+
 	eng := engine.New(engine.Config{
 		Store:         store,
 		Executor:      local.New(local.DefaultBootIDProvider()),
@@ -97,6 +103,9 @@ func serve(parentCtx context.Context) error {
 			MaxQueued: cfg.AdmissionMaxQueued,
 			DailyUSD:  cfg.DailyUSD,
 		},
+		ConstitutionProjectPath: cfg.ConstitutionProjectPath,
+		Policy:                  pol,
+		BaseRef:                 cfg.BaseRef,
 	})
 
 	// Reconciliation must complete before the API starts serving —

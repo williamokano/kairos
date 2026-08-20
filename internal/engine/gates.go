@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/williamokano/kairos/internal/artifact"
 	"github.com/williamokano/kairos/internal/constraint"
@@ -61,18 +62,49 @@ func (e *Engine) evaluateGates(ctx context.Context, def registry.Definition, c d
 		workDir = ws.Dir
 	}
 
+	// The repo-level constitution layer (05-gates.md's third tier,
+	// "loaded and content-hashed before the run starts and never
+	// re-read") can only be resolved once a real git workspace is known —
+	// loadDefinition already merged baseline + the project layer, which
+	// need no workspace at all. This merge is local to this one call, not
+	// written back into a shared Definition: repeated per gate
+	// evaluation is the "never re-read" property in code, since each call
+	// re-derives from the same on-disk file rather than trusting a cached
+	// value across the run.
+	gateLibrary := def.Gates
+	if workDir != "" {
+		repoPath := filepath.Join(workDir, ".kairos", "constitution.yaml")
+		repoGates, _, err := registry.LoadConstitutionGates(repoPath)
+		if err != nil {
+			return fmt.Errorf("resolving repo-level constitution: %w", err)
+		}
+		if len(repoGates) > 0 {
+			merged := make(map[string]registry.GateDef, len(gateLibrary)+len(repoGates))
+			for id, gd := range gateLibrary {
+				merged[id] = gd
+			}
+			for id, gd := range repoGates {
+				if _, alreadySet := def.Gates[id]; !alreadySet {
+					merged[id] = gd
+				}
+				// A project-layer or workflow-inline override of the same
+				// ID already won in loadDefinition's merge — the repo
+				// layer is "merged in", not "authoritative" (05-gates.md).
+			}
+			gateLibrary = merged
+		}
+	}
+
 	allPassed := true
 	var findings []domain.Finding
+	now := time.Now()
 	for _, gateID := range nd.Gates {
-		gd, ok := def.Gates[gateID]
+		gd, ok := gateLibrary[gateID]
 		if !ok {
-			// Unresolved against this document's own gates: map — the
-			// real constitution merge (kairos/baseline + project + repo)
-			// is L11 scope (see validate.go's matching comment). Not
-			// silently ignored: a WARN names exactly what was skipped,
-			// matching L05's original placeholder posture for an honest,
-			// documented gap (AGENTS §4 rule 1).
-			e.log.Warn("gate has no local definition (constitution resolution is L11 scope)",
+			// Genuinely unresolved against baseline + project + repo +
+			// workflow-inline — not silently ignored: a WARN names
+			// exactly what was skipped (AGENTS §4 rule 1).
+			e.log.Warn("gate has no definition in any constitution layer",
 				"runID", c.RunID, "nodeID", c.NodeID, "gateID", gateID)
 			continue
 		}
@@ -86,6 +118,7 @@ func (e *Engine) evaluateGates(ctx context.Context, def registry.Definition, c d
 			Output:  output,
 			WorkDir: workDir,
 			Dir:     gateDir,
+			BaseRef: e.baseRef,
 		})
 		if err != nil {
 			return fmt.Errorf("evaluating gate %q: %w", gateID, err)
@@ -103,15 +136,26 @@ func (e *Engine) evaluateGates(ctx context.Context, def registry.Definition, c d
 		}
 
 		if !result.Passed {
-			allPassed = false
-			// Waivable: false is enforced by omission, not by a check
-			// here: there is no waiver.grant code path anywhere in this
-			// engine (L11 scope) that could turn result.Passed back to
-			// true after the fact. A gate's Waivable field exists today
-			// only to be validated as a declared invariant — see
-			// L10-constraints-gates.md's Documented decisions and
-			// TestEvaluateGates_waivableFalseGateFailureIsNeverSilentlyPassed.
-			findings = append(findings, result.Findings...)
+			// Waivable: false gates never reach waiverActive — a waiver
+			// targeting one is simply never looked up, matching
+			// GateDef.Waivable's doc comment ("no code path in this
+			// engine can mark this gate's failure as passed, full stop").
+			// A waivable: true gate's real failure IS still recorded
+			// above via constraint.evaluated (05-gates.md's "fake the
+			// result" defence covers the audit trail, not routing) — only
+			// whether it blocks routing changes here.
+			waived := false
+			if gd.Waivable {
+				var err error
+				waived, err = e.waiverActive(ctx, c.RunID, c.NodeID, gateID, now)
+				if err != nil {
+					return fmt.Errorf("checking waiver for %q: %w", gateID, err)
+				}
+			}
+			if !waived {
+				allPassed = false
+				findings = append(findings, result.Findings...)
+			}
 		}
 	}
 

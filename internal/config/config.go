@@ -39,6 +39,24 @@ type Config struct {
 	// that this is checked against declared/estimated cost, never metered
 	// actual spend (NL-30). Defaults to 25 per 02-config.md.
 	DailyUSD float64
+	// ConstitutionProjectPath is 05-gates.md's authoritative,
+	// outside-every-workspace gate layer (engine.Config.ConstitutionProjectPath,
+	// L11). Empty means no project-level gate overrides. Defaults to
+	// $KAIROS_HOME/constitution.yaml — "outside every workspace" is
+	// satisfied trivially, since $KAIROS_HOME is never a workflow's
+	// workspace.
+	ConstitutionProjectPath string
+	// PolicyPath is ~/.kairos/policy.yaml (engine.Config.Policy is loaded
+	// from this path, L11). Defaults to $KAIROS_HOME/policy.yaml. A
+	// missing file resolves to policy.Default() — see internal/policy's
+	// Load doc comment.
+	PolicyPath string
+	// BaseRef is the run's base ref for git-diff/regex(added-lines) gate
+	// kinds (engine.Config.BaseRef, L11). Empty means those gate kinds
+	// fail loudly rather than guessing "origin/main". One daemon-wide
+	// default, not per-run selection — see L11-policy-secrets.md's
+	// Future work.
+	BaseRef string
 }
 
 // Load resolves $KAIROS_HOME (env override, then $XDG_STATE_HOME, then
@@ -78,13 +96,25 @@ func Load() (Config, error) {
 		dailyUSD = 25
 	}
 
+	constitutionProjectPath := v.GetString("CONSTITUTION_PATH")
+	if constitutionProjectPath == "" {
+		constitutionProjectPath = filepath.Join(home, "constitution.yaml")
+	}
+	policyPath := v.GetString("POLICY_PATH")
+	if policyPath == "" {
+		policyPath = filepath.Join(home, "policy.yaml")
+	}
+
 	return Config{
-		Home:               home,
-		WorkspaceRepo:      v.GetString("WORKSPACE_REPO"),
-		LLMBinary:          v.GetString("LLM_BINARY"),
-		AdmissionNodeSlots: nodeSlots,
-		AdmissionMaxQueued: maxQueued,
-		DailyUSD:           dailyUSD,
+		Home:                    home,
+		WorkspaceRepo:           v.GetString("WORKSPACE_REPO"),
+		LLMBinary:               v.GetString("LLM_BINARY"),
+		AdmissionNodeSlots:      nodeSlots,
+		AdmissionMaxQueued:      maxQueued,
+		DailyUSD:                dailyUSD,
+		ConstitutionProjectPath: constitutionProjectPath,
+		PolicyPath:              policyPath,
+		BaseRef:                 v.GetString("BASE_REF"),
 	}, nil
 }
 

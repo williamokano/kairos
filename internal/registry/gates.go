@@ -31,10 +31,10 @@ func parseGateDef(id string, m map[string]any) (GateDef, error) {
 
 	kind, _ := m["kind"].(string)
 	switch GateKind(kind) {
-	case GateExpr, GateCommand:
+	case GateExpr, GateCommand, GateFile, GateRegex, GateGitDiff, GateCoverage, GateJudged:
 		gd.Kind = GateKind(kind)
 	default:
-		return GateDef{}, fmt.Errorf("unsupported kind %q (L10-constraints-gates.md implements only expr and command)", kind)
+		return GateDef{}, fmt.Errorf("unsupported kind %q (grounded/recipients/outbound-scan are 13-domains.md scope, not built yet)", kind)
 	}
 
 	gd.Severity, _ = m["severity"].(string)
@@ -86,7 +86,99 @@ func parseGateDef(id string, m map[string]any) (GateDef, error) {
 				gd.FindingsFormat = format
 			}
 		}
+
+	case GateFile:
+		gd.FileExists = stringList(check["exists"])
+		gd.FileAbsent = stringList(check["absent"])
+		if len(gd.FileExists) == 0 && len(gd.FileAbsent) == 0 {
+			return GateDef{}, fmt.Errorf("kind: file requires check.exists or check.absent")
+		}
+
+	case GateRegex:
+		gd.RegexOver, _ = check["over"].(string)
+		if gd.RegexOver != "added-lines" {
+			return GateDef{}, fmt.Errorf("kind: regex requires check.over: \"added-lines\" (the only value this document implements — see Documented decisions)")
+		}
+		gd.RegexAbsent, _ = check["absent"].(string)
+		if gd.RegexAbsent == "" {
+			return GateDef{}, fmt.Errorf("kind: regex requires check.absent")
+		}
+		gd.RegexExclude = stringList(check["exclude"])
+
+	case GateGitDiff:
+		gd.GitDiffPathsForbidden = stringList(check["pathsForbidden"])
+		gd.GitDiffMustTouch = stringList(check["mustTouch"])
+		if mf, ok := check["maxFiles"].(float64); ok {
+			gd.GitDiffMaxFiles = int(mf)
+		}
+		if ml, ok := check["maxLines"].(float64); ok {
+			gd.GitDiffMaxLines = int(ml)
+		}
+		if nb, ok := check["noBinary"].(bool); ok {
+			gd.GitDiffNoBinary = nb
+		}
+		if dv, ok := check["dirty"].(bool); ok {
+			gd.GitDiffDirty = &dv
+		}
+		if sv, ok := check["staged"].(bool); ok {
+			gd.GitDiffStaged = &sv
+		}
+
+	case GateCoverage:
+		cmdAny, ok := check["command"].([]any)
+		if !ok || len(cmdAny) == 0 {
+			return GateDef{}, fmt.Errorf("kind: coverage requires a non-empty check.command list")
+		}
+		gd.Command = stringList(cmdAny)
+		gd.CoverageThen = stringList(check["then"])
+		if capture, ok := check["capture"].(map[string]any); ok {
+			gd.CoverageCaptureRegex, _ = capture["regex"].(string)
+		}
+		if gd.CoverageCaptureRegex == "" {
+			return GateDef{}, fmt.Errorf("kind: coverage requires check.capture.regex")
+		}
+		if expect, ok := check["expect"].(map[string]any); ok {
+			if min, ok := expect["min"].(float64); ok {
+				gd.CoverageMin = min
+			}
+		}
+
+	case GateJudged:
+		gd.JudgeLens, _ = check["lens"].(string)
+		gd.JudgeFraming, _ = check["framing"].(string)
+		if gd.JudgeFraming != "refutation" {
+			return GateDef{}, fmt.Errorf("kind: judged requires check.framing: \"refutation\" (the only framing this document implements)")
+		}
+		if quorum, ok := check["quorum"].(map[string]any); ok {
+			if of, ok := quorum["of"].(float64); ok {
+				gd.JudgeQuorumOf = int(of)
+			}
+			gd.JudgeActors = stringList(quorum["from"])
+		}
+		if gd.JudgeQuorumOf == 0 || len(gd.JudgeActors) < gd.JudgeQuorumOf {
+			return GateDef{}, fmt.Errorf("kind: judged requires check.quorum.of <= len(check.quorum.from)")
+		}
 	}
 
 	return gd, nil
+}
+
+// stringList converts a decoded YAML/JSON []any of strings into []string,
+// tolerating a bare string (some 05-gates.md examples write a single
+// pattern rather than a list) and a nil/missing value (returns nil).
+func stringList(v any) []string {
+	switch t := v.(type) {
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, e := range t {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	case string:
+		return []string{t}
+	default:
+		return nil
+	}
 }

@@ -79,6 +79,26 @@ func Validate(doc rawDoc, def Definition) error {
 			return err
 		}
 
+		// 05-gates.md's judged gate kind, four rules that don't bend:
+		// "the judge is never the session under judgement" — publish-time
+		// validation rejects a judged constraint whose actor equals the
+		// actor of any node it gates. Checked against this document's own
+		// gates: map only (the constitution's baseline/project/repo
+		// layers are resolved later, at dispatch time, by L11's
+		// registry.LoadWithConstitution — a workflow author cannot smuggle
+		// a self-judging gate past THIS check via those layers, but this
+		// check also cannot see them; see L11-policy-secrets.md's
+		// Documented decisions for why that gap is accepted here).
+		for _, gateID := range nd.Gates {
+			if gd, ok := def.Gates[gateID]; ok && gd.Kind == GateJudged {
+				for _, judgeActor := range gd.JudgeActors {
+					if judgeActor == nd.Actor {
+						return fmt.Errorf("node %q: judged gate %q names actor %q as a judge, which is also this node's own actor — the judge is never the session under judgement", nd.ID, gateID, judgeActor)
+					}
+				}
+			}
+		}
+
 		// A node's Gates []string is NOT required to resolve against this
 		// document's own top-level gates: map — 05-gates.md's real
 		// resolution merges kairos/baseline (compiled-in) with a project

@@ -52,6 +52,13 @@ const (
 	FailTimeout       FailReason = "timeout"
 	FailSchemaInvalid FailReason = "schema-invalid"
 	FailCancelled     FailReason = "cancelled"
+	// FailPolicyDenied covers both a deny-tier effect and a confirm-tier
+	// effect with no recorded EffectConfirmed — L11's
+	// ~/.kairos/policy.yaml enforcement. The distinguishing detail lives
+	// in NodeExecutionFailed.Message, not a further FailReason split,
+	// matching FailFailure's existing precedent of one reason plus a
+	// human-readable message.
+	FailPolicyDenied FailReason = "policy-denied"
 )
 
 // ParkReason narrows why a NodeExecution reached ExecParked. Three distinct

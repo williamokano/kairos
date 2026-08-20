@@ -1,6 +1,9 @@
 package domain
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Event is a fact domain.Advance folds into RunState. Every concrete event
 // is a closed member of this sum type (the isEvent marker method). Some
@@ -363,3 +366,59 @@ type ConstraintEvaluated struct {
 
 func (ConstraintEvaluated) EventType() string { return "constraint.evaluated" }
 func (ConstraintEvaluated) isEvent()          {}
+
+// WaiverGranted records L11's one and only way a waivable gate's failure
+// stops blocking a run: a human-authored fact with a reason and an
+// expiry, never something the engine or an actor can produce itself
+// (05-gates.md: "waiver.grant is deny-tier for every non-human
+// principal"). See internal/engine's GrantWaiver, the sole code path
+// that appends this event, which rejects any non-"human" actor outright.
+// A waiver targeting a Waivable: false gate is never consulted — L10's
+// gates.go looks it up only for gates already declared waivable, so a
+// waiver aimed at a non-waivable gate is simply never read, matching
+// "false means no code path in this engine can mark this gate's failure
+// as passed, full stop" (registry.GateDef's own doc comment).
+type WaiverGranted struct {
+	RunID, NodeID string
+	GateID        string
+	Reason        string
+	ExpiresAt     time.Time
+	GrantedBy     string // always "human" — GrantWaiver rejects any other value before this event exists
+}
+
+func (WaiverGranted) EventType() string { return "waiver.grant" }
+func (WaiverGranted) isEvent()          {}
+
+// EffectConfirmationRequested is L11's audit fact that a confirm-tier
+// effect (~/.kairos/policy.yaml) blocked a node's dispatch pending a
+// recorded EffectConfirmed. Unlike 05-gates.md's full flow — which parks
+// the run, releases every permit, and resumes automatically once a
+// human answers — this document's scope stops at a synchronous check:
+// the node fails with a clear, actionable reason if no EffectConfirmed
+// already exists for (RunID, NodeID, Effect) at dispatch time. The full
+// pause-and-resume flow needs a new async-wait state-machine addition to
+// internal/domain (a fourth "waiting to start" concept alongside
+// ExecWaiting's existing wait-node-only usage) that materially overlaps
+// L12 (effects + compensation, which owns real effect dispatch) and L13
+// (the human queue) — see L11-policy-secrets.md's Documented decisions
+// and Future work.
+type EffectConfirmationRequested struct {
+	RunID, NodeID, ExecID string
+	Effect                string
+}
+
+func (EffectConfirmationRequested) EventType() string { return "effect.confirmation.requested" }
+func (EffectConfirmationRequested) isEvent()          {}
+
+// EffectConfirmed is the human-authored answer EffectConfirmationRequested
+// waits on — recorded ahead of a node's dispatch (this document's
+// synchronous-check scope, see EffectConfirmationRequested's doc comment),
+// not the response to a live in-run prompt.
+type EffectConfirmed struct {
+	RunID, NodeID string
+	Effect        string
+	Scope         string // "once" | "run" (05-gates.md's effect.confirmed{scope})
+}
+
+func (EffectConfirmed) EventType() string { return "effect.confirmed" }
+func (EffectConfirmed) isEvent()          {}

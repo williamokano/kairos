@@ -240,6 +240,17 @@ func projectFixture(eventType string, ev domain.Event) error {
 		}
 		_, err = advanceOK(state, ev)
 		return err
+	case "waiver.grant", "effect.confirmation.requested", "effect.confirmed":
+		// L11's audit-only facts: folded as a no-op, same scenario as
+		// node.execution.started since they describe the same in-flight
+		// exec (a waiver or an effect check both concern a node that has
+		// started, before or after its output is known).
+		state, err := seedPending()
+		if err != nil {
+			return err
+		}
+		_, err = advanceOK(state, ev)
+		return err
 	default:
 		return fmt.Errorf("no fixture scenario registered for event type %q", eventType)
 	}

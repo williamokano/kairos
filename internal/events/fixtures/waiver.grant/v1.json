@@ -1,0 +1,8 @@
+{
+  "RunID": "run_01J8QK",
+  "NodeID": "n1",
+  "GateID": "lint",
+  "Reason": "known flaky linter rule, tracked in JIRA-123",
+  "ExpiresAt": "2026-08-27T00:00:00Z",
+  "GrantedBy": "human"
+}

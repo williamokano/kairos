@@ -428,6 +428,68 @@ inspects this yet.
 *Revisit:* when L11 (policy/constitution) ships, every gate name in every published workflow should
 be re-validated against the now-real merged gate library, and a workflow whose gates newly fail to
 resolve should be flagged — not silently left in its current WARN-and-skip state.
+*Update, L11:* the merged constitution (baseline + project + repo) now exists and makes
+`guardrails-untouched`/`no-secrets`/`clean-tree` name-resolvable from any node's own `gates:` list,
+but this does not close the gap above — an unresolved name is still a silent WARN-and-skip, not a
+publish error, against the now-larger merged library too.
+
+**NL-34 · `~/.kairos/policy.yaml`'s `match`/`paths` sub-pattern scoping is parsed but never
+enforced.**
+`internal/policy` (L11) resolves an effect's tier (allow/confirm/deny) purely by effect name; a
+rule's `match: "kairos/**"` or `paths: ["!.kairos/**"]` fields are decoded into `EffectRule` but
+`Decide` never consults them — the tier for `git.push`, say, is uniform regardless of which branch or
+path the actual call would touch.
+*Blast radius:* a policy author who writes `git.push: { confirm: once-per-run, match: ["!main"] }`
+expecting pushes to `main` to be treated differently gets the same `confirm` tier for every push,
+including one to `main` — the finer-grained protection the doc's own example implies does not exist
+yet.
+*Mitigations:* none shipped. Wiring this requires threading the specific call arguments (branch name,
+file path) from each builtin effect's actual invocation site into `Decide` — those call sites do not
+exist yet either, since L12 (effects + compensation) owns real effect dispatch.
+*Detection:* none automatic — read `internal/policy/policy.go`'s package doc comment, or notice a
+`match`/`paths` clause in a real `policy.yaml` having no observable effect on which tier applies.
+*Revisit:* when L12 builds the real builtin effect call sites (git.push, gh.pr.create, etc.), wire
+their actual arguments through `Decide` and add the sub-pattern matching this entry currently lacks.
+
+**NL-35 · A confirm-tier effect's block is a synchronous, this-attempt-only check — not
+05-gates.md's full pause-the-run-and-resume-on-a-human-answer flow.**
+`internal/engine.checkEffects` (L11) requires an `EffectConfirmed` fact to already exist for
+(RunID, NodeID, Effect) at the moment a node is dispatched; if none does, the node fails immediately
+(after recording `EffectConfirmationRequested` for audit) rather than parking the run, releasing every
+permit, and resuming automatically once a human answers. A human who answers *after* the node has
+already failed gets nothing — there is no retry.
+*Blast radius:* a real confirm-tier effect (e.g. `gh.pr.create: { confirm: each }`) makes any node
+declaring it fail on every run unless a caller pre-records the confirmation via
+`GrantEffectConfirmation` ahead of time, which requires knowing in advance that the confirmation will
+be needed — the interactive "the engine goes idle, a desktop notification fires, you answer, the run
+resumes" experience 05-gates.md describes does not exist.
+*Mitigations:* the tier decision and the audit trail (`EffectConfirmationRequested`/`EffectConfirmed`)
+are real and tested (**shipped** — `internal/engine/policy_test.go`); the actual pause-and-resume flow
+is **none**. Building it needs a new "waiting to start" state-machine addition to `internal/domain` (a
+fourth wait concept, since `ExecWaiting` today only serves `wait:`-declared nodes post-execution) —
+scoped explicitly to L12 (effects + compensation, which owns real effect dispatch) and L13 (the human
+queue), not built here.
+*Detection:* `effect.confirmation.requested` with no matching `effect.confirmed` in a run's stream,
+followed immediately by `node.execution.failed{reason: policy-denied}`.
+*Revisit:* when L12/L13 land, replace `checkEffects`'s synchronous check with the real pause-and-resume
+machinery this entry describes.
+
+**NL-36 · Judged-gate quorum invokes the same single configured LLM binary for every named judge
+actor — not literally different CLIs.**
+`internal/engine.Judge` (L11) has only one binary to invoke (`Config.LLMBinary`, L08's single-binary
+knob); a `judged` gate's `quorum.from: [reviewer-security, reviewer-security-codex]` therefore becomes
+two invocations of the same binary with two different prompts, not one Claude Code call and one Codex
+call as 05-gates.md's "quorum across two different CLIs" describes.
+*Blast radius:* the "different lenses, not duplicate judges" property the doc claims for quorum is
+weakened to "different prompts on the same model," which correlates more than genuinely independent
+CLIs would — a systematic blind spot in one CLI's judgement is more likely to affect both invocations
+than the doc's design intends.
+*Mitigations:* none shipped. Requires per-actor binary resolution (an actor name -> binary path
+mapping) that does not exist anywhere in the registry or engine config today.
+*Detection:* none automatic — read `internal/engine/actor_judge.go`'s doc comment.
+*Revisit:* when a real per-actor CLI resolution mechanism is needed for any reason (this, or a
+non-judged multi-CLI use case), wire `Judge`'s binary choice off `req.Actor` instead of the single
+`e.llmBinary`.
 
 **NL-13 · The audit log is not tamper-proof.**
 The agent can write `~/.kairos/kairos.db` unless G6–G9 are enabled.
