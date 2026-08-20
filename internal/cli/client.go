@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -308,4 +310,66 @@ func (c *Client) PauseSource(ctx context.Context, id string) error {
 
 func (c *Client) ResumeSource(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/sources/"+id+"/resume", nil, nil)
+}
+
+// Envelope mirrors the fields internal/events.Envelope serializes over
+// /events — the daemon's canonical event log, read here rather than
+// reimplemented anywhere else (internal/tui's decision/inbox screens
+// derive risk/gates/findings from this, since no summarized "decision
+// context" endpoint exists yet — L15-tui.md's Documented decisions).
+type Envelope struct {
+	StreamID  string          `json:"StreamID"`
+	Sequence  int             `json:"Sequence"`
+	GlobalSeq int64           `json:"GlobalSeq"`
+	EventType string          `json:"EventType"`
+	Event     json.RawMessage `json:"Event"`
+}
+
+// Events fetches every historical envelope currently in streamID (or every
+// stream, if empty) via GET /events's non-streaming replay portion. It
+// stops reading once the server goes quiet for readTimeout — the SSE
+// endpoint stays open forever for live tailing, and this call wants only
+// the bounded history, matching the pattern cmd/kairos's own integration
+// tests already use against this same endpoint.
+func (c *Client) Events(ctx context.Context, streamID string, readTimeout time.Duration) ([]Envelope, error) {
+	path := "/events?after=0"
+	if streamID != "" {
+		path = "/events?stream=" + streamID + "&after=0"
+	}
+	// A deadline of its own, distinct from ctx: the connection stays open
+	// forever for live tailing, so "the deadline expired" is the expected,
+	// successful end of a bounded historical read here, not an error.
+	readCtx, cancel := context.WithTimeout(ctx, readTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(readCtx, http.MethodGet, c.base+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("building request: %w", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to daemon: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 300 {
+		return nil, &APIError{Status: resp.StatusCode, Message: "GET /events failed"}
+	}
+
+	var envs []Envelope
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var env Envelope
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &env); err == nil {
+			envs = append(envs, env)
+		}
+	}
+	if err := scanner.Err(); err != nil && readCtx.Err() == nil {
+		return envs, fmt.Errorf("reading events: %w", err)
+	}
+	return envs, nil
 }

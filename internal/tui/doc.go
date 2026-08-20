@@ -1,9 +1,14 @@
-// Package tui holds the bubbletea client. It imports neither os/exec nor
-// internal/executor/*, and talks to the daemon only through the API client
-// — never the engine in-process. In the design this reduced from, that
-// boundary was also a network boundary; here TestArchitecture_tuiHasNoExecution
-// is the only thing holding it.
+// Package tui is Kairos's terminal UI — a bubbletea program that is a pure
+// client of the daemon's existing HTTP API over the unix socket
+// (internal/cli.Client), exactly like the CLI itself. It never imports
+// os/exec or any internal/executor/* package (enforced by
+// internal/archtest's TestArchitecture_tuiHasNoExecution) and never talks
+// to internal/engine, internal/eventstore, or internal/domain directly —
+// see adr/0008-terminal-is-a-client.md for why: a renderer's lifetime is a
+// terminal session, and the work this system does must outlive it.
 //
-// Empty until L15 (TUI). It exists now so the test above checks a real
-// import graph rather than an absent one.
+// Live updates are polling-based for now (a periodic re-fetch on a tea.Tick,
+// not a persistent SSE-push binding into the bubbletea update loop) — see
+// L15-tui.md's Documented decisions for why that's a real, honest scope cut
+// rather than the doc's fuller "SSE, resumable by Last-Event-ID" design.
 package tui

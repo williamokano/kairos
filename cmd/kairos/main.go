@@ -19,5 +19,5 @@ import (
 )
 
 func main() {
-	os.Exit(cli.Execute(os.Args[1:], daemonStarter{}, serve))
+	os.Exit(cli.Execute(os.Args[1:], daemonStarter{}, serve, runTUI))
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -19,18 +20,21 @@ import (
 type appCtx struct {
 	client   *Client
 	sockPath string
+	homePath string
 	output   string
 	starter  DaemonStarter
 	serve    ServeFunc
+	tui      TUIFunc
 }
 
 // Execute builds and runs the root command, returning the process exit
 // code. Only cmd/kairos/main.go may call os.Exit — this function just
 // computes what that call's argument should be (AGENTS.md §2: "Only
 // cmd/kairos/main.go may call os.Exit"). serve is the real daemon boot
-// sequence, injected from cmd/kairos (see serve.go's ServeFunc doc).
-func Execute(args []string, starter DaemonStarter, serve ServeFunc) int {
-	app := &appCtx{starter: starter, output: "table", serve: serve}
+// sequence and tui the real TUI entry point, both injected from
+// cmd/kairos (see serve.go's ServeFunc/TUIFunc docs).
+func Execute(args []string, starter DaemonStarter, serve ServeFunc, tui TUIFunc) int {
+	app := &appCtx{starter: starter, output: "table", serve: serve, tui: tui}
 	root := newRootCmd(app)
 	root.SetArgs(args)
 
@@ -91,9 +95,17 @@ func newRootCmd(app *appCtx) *cobra.Command {
 		Short:         "Kairos: a durable, typed, event-sourced orchestration engine.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		// Bare `kairos`: no TUI yet (L15), so ensure a daemon and print
-		// status, matching "kairos | grep must never hang".
+		// Bare `kairos`: attach the TUI when stdout is a real terminal;
+		// otherwise print status and exit 0 — "kairos | grep must never
+		// hang on a full-screen app" (09-cli-and-tui.md, L04's deferred
+		// one-line change, made here).
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if app.tui != nil && isTTY(cmd.OutOrStdout()) {
+				if _, err := ensureClient(cmd, app); err != nil {
+					return err
+				}
+				return app.tui(cmd.Context(), app.sockPath, app.homePath)
+			}
 			return runStatus(cmd, app)
 		},
 	}
@@ -137,6 +149,7 @@ func ensureClient(cmd *cobra.Command, app *appCtx) (*Client, error) {
 	}
 	sockPath := filepath.Join(cfg.Home, "daemon.sock")
 	app.sockPath = sockPath
+	app.homePath = cfg.Home
 	client := NewClient(sockPath)
 	app.client = client
 
@@ -148,4 +161,19 @@ func ensureClient(cmd *cobra.Command, app *appCtx) (*Client, error) {
 
 func withTimeout(cmd *cobra.Command) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(cmd.Context(), 30*time.Second)
+}
+
+// isTTY reports whether w is a real terminal — a plain os.ModeCharDevice
+// check, stdlib-only (no new dependency), matching the exact test bare
+// `kairos` needs: "is a script piping me, or is a human watching."
+func isTTY(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
