@@ -16,6 +16,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/williamokano/kairos/internal/engine"
 	"github.com/williamokano/kairos/internal/eventstore"
 )
 
@@ -34,6 +35,7 @@ type DoctorCheck struct {
 // bootstrap and passed to NewMux.
 type Deps struct {
 	Store        eventstore.Store
+	Engine       *engine.Engine // AnswerHumanTask's callable core — see human.go
 	DoctorChecks []DoctorCheck
 	Deferred     []string // doctor checks not yet implemented, named honestly rather than omitted
 	StartedAt    time.Time
@@ -44,6 +46,7 @@ func NewMux(deps Deps) *http.ServeMux {
 	mux := http.NewServeMux()
 	registerRunRoutes(mux, deps)
 	registerConversationRoutes(mux, deps)
+	registerHumanRoutes(mux, deps)
 	registerEventRoutes(mux, deps)
 	registerStatusRoute(mux, deps)
 	registerDoctorRoute(mux, deps)

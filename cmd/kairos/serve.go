@@ -120,6 +120,7 @@ func serve(parentCtx context.Context) error {
 
 	deps := api.Deps{
 		Store:        store,
+		Engine:       eng,
 		DoctorChecks: toolchainChecks(),
 		Deferred:     []string{"agent auth (L08)", "network egress (later)"},
 		StartedAt:    time.Now(),

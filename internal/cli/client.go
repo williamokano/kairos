@@ -218,6 +218,16 @@ func (c *Client) PostConversationMessage(ctx context.Context, runID, text string
 	return c.do(ctx, http.MethodPost, "/runs/"+runID+"/conversation/messages", map[string]string{"text": text}, nil)
 }
 
+// ApproveHumanTask posts a kairos-approve-shaped answer. reason is
+// required by the daemon side (engine.ErrHumanDecisionReasonRequired) —
+// this method does not pre-validate it locally, so the error surfaces
+// from the same place regardless of caller (API test or CLI).
+func (c *Client) ApproveHumanTask(ctx context.Context, runID, nodeID, decision, reason, typedWord string) error {
+	return c.do(ctx, http.MethodPost, "/runs/"+runID+"/approve", map[string]string{
+		"nodeId": nodeID, "decision": decision, "reason": reason, "typedWord": typedWord,
+	}, nil)
+}
+
 // Ping reports whether the daemon responds at all — used by ensureDaemon
 // to detect a live socket before attempting auto-start.
 func (c *Client) Ping(ctx context.Context) bool {

@@ -123,6 +123,24 @@ type Engine struct {
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	// runCtx is the live-loop context armTimer's time.AfterFunc callbacks
+	// run under — set once by Start, read by armTimer/Reconcile's timer
+	// re-arming. A CmdArmTimer dispatched before Start (from Reconcile's
+	// own catch-up pass) uses ctx directly instead; see armTimer's doc
+	// comment.
+	runCtxMu sync.Mutex
+	runCtx   context.Context
+
+	// timersMu guards timers — an in-memory, NOT persisted wait-timeout
+	// wheel (L05 decision #6 named the gap; this document fills it only
+	// as far as "fires for real while the daemon is up," not "survives a
+	// restart mid-countdown" — see L13-human-decisions.md's Documented
+	// decisions for why a full persisted timer wheel stays out of scope).
+	// Reconcile's catch-up pass is what makes an OVERDUE timeout correct
+	// across a restart; a not-yet-due one is simply re-armed there.
+	timersMu sync.Mutex
+	timers   map[string]*time.Timer // key: runID+"/"+nodeID+"/"+execID
 }
 
 // pendingStart is one CmdStartNode admission Queued — everything
@@ -168,6 +186,7 @@ func New(cfg Config) *Engine {
 		log:           cfg.Logger,
 		admit:         admission.New(cfg.Admission),
 		claims:        make(map[string]admission.Claims),
+		timers:        make(map[string]*time.Timer),
 
 		constitutionProjectPath: cfg.ConstitutionProjectPath,
 		policy:                  cfg.Policy,
@@ -205,6 +224,13 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	runCtx, cancel := context.WithCancel(ctx)
 	e.cancel = cancel
+	e.runCtxMu.Lock()
+	e.runCtx = runCtx
+	e.runCtxMu.Unlock()
+
+	if err := e.rearmOutstandingTimers(ctx); err != nil {
+		return fmt.Errorf("re-arming wait timers: %w", err)
+	}
 
 	for _, sh := range e.shards {
 		e.wg.Add(1)
@@ -310,6 +336,7 @@ func (e *Engine) Stop(ctx context.Context) error {
 		e.cancel()
 	}
 	e.wg.Wait()
+	e.stopAllTimers()
 
 	recordCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

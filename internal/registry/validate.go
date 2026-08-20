@@ -65,6 +65,13 @@ func Validate(doc rawDoc, def Definition) error {
 			if len(nd.Wait.On) == 0 {
 				return fmt.Errorf("node %q: wait.on must name at least one source", nd.ID)
 			}
+			switch nd.Wait.Weight {
+			case "", WeightSilent, WeightGlance, WeightRead, WeightType:
+				// fine — "" is legal for any non-human wait kind, where
+				// weight is meaningless (defaultWait never sets it there).
+			default:
+				return fmt.Errorf("node %q: wait.weight %q is not one of silent, glance, read, type", nd.ID, nd.Wait.Weight)
+			}
 		}
 
 		switch nd.RestartPolicy {

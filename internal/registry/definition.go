@@ -275,7 +275,24 @@ type WaitDef struct {
 	On        []WaitSource
 	Timeout   time.Duration // relative; ProjectGraph does not resolve this to an absolute instant (decision #3)
 	OnTimeout string        // "escalate" | "park"
+	// Weight is 05-gates.md's "decision weight must match reversibility"
+	// tier — "silent" | "glance" | "read" | "type" — meaningful only for
+	// a wait.on kind: human entry (L13-human-decisions.md). Empty means
+	// unset; defaultWait resolves it to WeightRead, the doc's middle
+	// friction level, when Kind == human and no weight was declared.
+	Weight string
 }
+
+// Human-decision weight values 05-gates.md's table names, in ascending
+// order of friction. A node's Weight is a declared policy property, never
+// actor-chosen (see internal/engine's AnswerHumanTask, which enforces
+// this as a real invariant, not just documentation).
+const (
+	WeightSilent = "silent"
+	WeightGlance = "glance"
+	WeightRead   = "read"
+	WeightType   = "type"
+)
 
 // SpawnDef mirrors 03-workflows.md's spawn: block. Parsed and structurally
 // validated only — dispatch is L17.

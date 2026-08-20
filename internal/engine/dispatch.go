@@ -28,15 +28,10 @@ func (e *Engine) dispatch(ctx context.Context, definitionRef string, cmd domain.
 	case domain.CmdEnterWait:
 		return e.dispatchEnterWait(ctx, c)
 	case domain.CmdArmTimer:
-		// No persisted timer wheel in L05 (documented decision #6) — the
-		// wait row CmdEnterWait recorded is the only bookkeeping; a real
-		// wall-clock-armed timer is Future work. Not silently dropped:
-		// logged so an actual wait-bearing workflow's gap is visible.
-		e.log.Warn("CmdArmTimer has no real timer wheel yet (L05 scope)", "runID", c.RunID, "nodeID", c.NodeID, "fireAt", c.FireAt)
+		e.armTimer(c)
 		return nil
 	case domain.CmdCreateHumanTask:
-		e.log.Warn("CmdCreateHumanTask has no human queue yet (L13 scope)", "runID", c.RunID, "nodeID", c.NodeID)
-		return nil
+		return e.dispatchCreateHumanTask(ctx, c)
 	default:
 		return fmt.Errorf("engine: unknown cmd type %T", cmd)
 	}

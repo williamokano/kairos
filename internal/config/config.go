@@ -57,6 +57,14 @@ type Config struct {
 	// default, not per-run selection — see L11-policy-secrets.md's
 	// Future work.
 	BaseRef string
+	// UnattendedAck is 05-gates.md's headless acknowledgement string:
+	// `kairos run --unattended` refuses unless this is non-empty and
+	// starts with "yes-" (the doc's own example is
+	// "yes-<hostname>") — a config value, never a flag, so the operator
+	// has to have typed it in at some point rather than a bare --yes
+	// silently skipping every confirmation. Empty means --unattended is
+	// always refused.
+	UnattendedAck string
 }
 
 // Load resolves $KAIROS_HOME (env override, then $XDG_STATE_HOME, then
@@ -115,6 +123,7 @@ func Load() (Config, error) {
 		ConstitutionProjectPath: constitutionProjectPath,
 		PolicyPath:              policyPath,
 		BaseRef:                 v.GetString("BASE_REF"),
+		UnattendedAck:           v.GetString("UNATTENDED_ACK"),
 	}, nil
 }
 

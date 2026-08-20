@@ -243,6 +243,9 @@ func defaultWait(nd *NodeDef, rn raw) error {
 	if onTimeout, ok := waitAny["onTimeout"].(string); ok {
 		wd.OnTimeout = onTimeout
 	}
+	if weight, ok := waitAny["weight"].(string); ok {
+		wd.Weight = weight
+	}
 	if timeoutStr, ok := waitAny["timeout"].(string); ok {
 		d, err := time.ParseDuration(timeoutStr)
 		if err != nil {
@@ -282,6 +285,14 @@ func defaultWait(nd *NodeDef, rn raw) error {
 				}
 			}
 			wd.On = append(wd.On, src)
+		}
+	}
+	if wd.Weight == "" {
+		for _, src := range wd.On {
+			if src.Kind == WaitHuman {
+				wd.Weight = WeightRead
+				break
+			}
 		}
 	}
 	nd.Wait = wd
