@@ -97,6 +97,7 @@ func (e *Engine) dispatchShellActor(ctx context.Context, nd registry.NodeDef, c 
 // "parses."
 func (e *Engine) reapShell(ctx context.Context, nd registry.NodeDef, runID, nodeID, execID string, pid int, outputPath string) {
 	defer e.releaseAndDrain(ctx, execID)
+	defer e.collectLogs(ctx, runID, nodeID, execID, e.scratchDir(runID, execID))
 
 	res, err := e.exec.Wait(ctx, pid)
 	if err != nil {
@@ -117,8 +118,17 @@ func (e *Engine) reapShell(ctx context.Context, nd registry.NodeDef, runID, node
 	}
 
 	valid := validateOutput(nd, body)
+	inline, ref, err := e.storeOutput(body)
+	if err != nil {
+		_ = e.appendNodeFailed(ctx, runID, nodeID, execID, domain.FailFailure, "storing output artifact: "+err.Error())
+		return
+	}
+	var raw json.RawMessage
+	if inline != nil {
+		raw = json.RawMessage(inline)
+	}
 	_ = e.appendNext(ctx, runID, domain.NodeOutputReceived{
-		RunID: runID, NodeID: nodeID, ExecID: execID, SchemaValid: valid, Output: json.RawMessage(body),
+		RunID: runID, NodeID: nodeID, ExecID: execID, SchemaValid: valid, Output: raw, OutputRef: ref,
 	})
 }
 

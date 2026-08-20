@@ -206,6 +206,10 @@ func derefEvent(ev domain.Event) domain.Event {
 		return *e
 	case *domain.OutputRepairAttempted:
 		return *e
+	case *domain.LogDegraded:
+		return *e
+	case *domain.LogTruncated:
+		return *e
 	default:
 		return ev
 	}

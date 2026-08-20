@@ -391,6 +391,24 @@ recorded for the stalled node, and a `dispatch failed` ERROR log line.
 *Revisit:* the next document that touches `dispatchShellActor`/`dispatchLLMActor` should route their
 early-failure returns through a shared `denyNode`-shaped helper instead of `appendNodeFailed` directly.
 
+**NL-32 · The content-addressed artifact store has no redaction pass — treat it as containing
+secrets.**
+`internal/artifact` (L09) stores oversized node outputs and, going forward, whatever future documents
+collect into it (transcripts, diffs) byte-for-byte, exactly as the actor produced them. No scan for
+API keys, tokens, or credentials runs before or after a blob is written.
+*Blast radius:* any secret an actor's output happened to contain (an echoed environment variable, a
+pasted token) is retained on disk, deduplicated and content-addressed, for as long as the blob store
+is retained — indefinitely, since L09 also ships no GC for the artifact store itself (only
+`internal/workspace.GC`, L06, reclaims workspace directories, not artifact blobs).
+*Mitigations:* none shipped. The transcript/stdout.log redaction pass named in 06-durability.md
+(`artifact.redacted{count}`) is explicitly deferred past L09 — a scan-and-rewrite pass over
+already-written content-addressed blobs is a distinct piece of work from the collection path L09
+built.
+*Detection:* none automatic — this is a standing property of the store, not an event to watch for.
+*Revisit:* before any workflow definition is trusted to run against a real credential-bearing
+environment, or before the artifact store is exposed to any reader beyond the local `kairos` process
+itself (e.g. a future web UI artifact viewer).
+
 **NL-13 · The audit log is not tamper-proof.**
 The agent can write `~/.kairos/kairos.db` unless G6–G9 are enabled.
 *Mitigations:* `guardrails-untouched` covers `~/.kairos/**` in the diff gate (**shipped**), refusing to

@@ -53,6 +53,11 @@ var builtins = []builtinEvent{
 	{"session.resume.failed", 1, func() domain.Event { return &domain.SessionResumeFailed{} }},
 	{"session.cost.unavailable", 1, func() domain.Event { return &domain.SessionCostUnavailable{} }},
 	{"output.repair.attempted", 1, func() domain.Event { return &domain.OutputRepairAttempted{} }},
+	// L09-introduced, run-scoped log-backpressure facts (event.go's doc
+	// comments) — same posture as the L08 row above: RunID-bearing,
+	// folded through domain.Advance as no-op audit transitions.
+	{"log.degraded", 1, func() domain.Event { return &domain.LogDegraded{} }},
+	{"log.truncated", 1, func() domain.Event { return &domain.LogTruncated{} }},
 }
 
 // Builtin returns a Registry with every domain.Event type L01 defined,

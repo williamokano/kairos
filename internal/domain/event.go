@@ -99,6 +99,12 @@ type NodeOutputReceived struct {
 	RunID, NodeID, ExecID string
 	SchemaValid           bool
 	Output                json.RawMessage
+	// OutputRef is set instead of Output when the actor's output exceeds
+	// 06-durability.md's 8 KiB inlining threshold — the engine stores the
+	// full body in the content-addressed artifact store and records only
+	// its reference here (L09). Output and OutputRef are never both set:
+	// an oversized output is a reference, never a truncated inline copy.
+	OutputRef *ArtifactRef
 }
 
 func (NodeOutputReceived) EventType() string { return "node.output.received" }
@@ -257,6 +263,41 @@ type OutputRepairAttempted struct {
 
 func (OutputRepairAttempted) EventType() string { return "output.repair.attempted" }
 func (OutputRepairAttempted) isEvent()          {}
+
+// ArtifactRef points at a blob in the content-addressed artifact store
+// (internal/artifact) instead of an inlined payload — recorded when a
+// value would exceed 06-durability.md's 8 KiB inlining threshold (diffs,
+// transcripts, large node outputs), keeping event payloads well under the
+// event store's 64 KiB hard cap.
+type ArtifactRef struct {
+	Hash string
+	Size int64
+}
+
+// LogDegraded records 06-durability.md's log backpressure policy applied
+// at node-completion collection: rotation/compression of a node's log
+// could not proceed safely (e.g. a write failure), so the log stream was
+// left in its prior state rather than risking a silent gap — "block
+// first, degrade second, never silently."
+type LogDegraded struct {
+	RunID, NodeID, ExecID string
+	Stream                string // "stdout" or "stderr"
+	Reason                string
+}
+
+func (LogDegraded) EventType() string { return "log.degraded" }
+func (LogDegraded) isEvent()          {}
+
+// LogTruncated records that a node's log stream was truncated rather than
+// retained in full — recorded, never a silent gap (AGENTS §4 rule 1).
+type LogTruncated struct {
+	RunID, NodeID, ExecID string
+	Stream                string
+	DroppedBytes          int64
+}
+
+func (LogTruncated) EventType() string { return "log.truncated" }
+func (LogTruncated) isEvent()          {}
 
 // The four events below are additive, L05-introduced facts recorded to a
 // separate "system" stream, not any run's stream — they have no RunID and

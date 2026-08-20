@@ -214,11 +214,12 @@ func projectFixture(eventType string, ev domain.Event) error {
 		// here just means the decode succeeded — there is no RunState to
 		// fold into.
 		return nil
-	case "llm.session.started", "session.resume.failed", "session.cost.unavailable", "output.repair.attempted":
-		// L08's audit-only facts: run-scoped, folded as a no-op (see
-		// advance.go's case for them) — same scenario as
-		// node.execution.started since they describe the same in-flight
-		// exec.
+	case "llm.session.started", "session.resume.failed", "session.cost.unavailable", "output.repair.attempted",
+		"log.degraded", "log.truncated":
+		// L08's audit-only facts, plus L09's log-backpressure facts:
+		// run-scoped, folded as a no-op (see advance.go's case for them)
+		// — same scenario as node.execution.started since they describe
+		// the same in-flight exec.
 		state, err := seedPending()
 		if err != nil {
 			return err

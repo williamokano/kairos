@@ -51,13 +51,15 @@ func Advance(state RunState, ev Event, now time.Time) (RunState, []Cmd, error) {
 		return advanceHumanTaskCreated(state, e)
 	case HumanTaskAnswered:
 		return advanceHumanTaskAnswered(state, e, now)
-	case LLMSessionStarted, SessionResumeFailed, SessionCostUnavailable, OutputRepairAttempted:
-		// L08's audit-only facts: they record something true about a
-		// NodeExecution's actor invocation without moving it through any
-		// state the run's routing cares about (ExecStatus is untouched).
-		// Explicit no-op cases rather than falling through to default,
-		// since these DO belong to a run's own stream (unlike the L05
-		// system-stream events) and must not error as unknown.
+	case LLMSessionStarted, SessionResumeFailed, SessionCostUnavailable, OutputRepairAttempted,
+		LogDegraded, LogTruncated:
+		// L08's audit-only facts, plus L09's log-backpressure facts: they
+		// record something true about a NodeExecution's actor invocation
+		// without moving it through any state the run's routing cares
+		// about (ExecStatus is untouched). Explicit no-op cases rather
+		// than falling through to default, since these DO belong to a
+		// run's own stream (unlike the L05 system-stream events) and must
+		// not error as unknown.
 		return state, nil, nil
 	default:
 		return state, nil, fmt.Errorf("%w: %T", ErrUnknownEvent, ev)

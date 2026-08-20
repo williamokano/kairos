@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/williamokano/kairos/internal/admission"
+	"github.com/williamokano/kairos/internal/artifact"
 	"github.com/williamokano/kairos/internal/domain"
 	"github.com/williamokano/kairos/internal/events"
 	"github.com/williamokano/kairos/internal/eventstore"
@@ -38,6 +39,11 @@ type Config struct {
 	// from the trigger's invocation cwd, is Future work (see
 	// L06-workspaces.md) — this document scopes to one daemon-wide repo.
 	WorkspaceRepo string
+	// ArtifactRoot is where internal/artifact keeps its content-addressed
+	// blob store (L09). Defaults to an "artifacts" sibling of WorkRoot's
+	// parent (i.e. $KAIROS_HOME/artifacts) if empty, matching MirrorRoot's
+	// defaulting convention.
+	ArtifactRoot string
 	// LLMBinary is the CLI binary an llm-kind actor (claude/codex/gemini/
 	// local) invokes — configured, never assumed installed (L08). Empty
 	// means no llm-kind node can run; dispatchLLMActor fails that node
@@ -64,6 +70,7 @@ type Engine struct {
 	workRoot      string
 	workspaceRepo string
 	workspaces    *workspace.Manager
+	artifacts     *artifact.Store
 	llmBinary     string
 	killGrace     time.Duration
 	numShards     int
@@ -117,6 +124,10 @@ func New(cfg Config) *Engine {
 	if mirrorRoot == "" {
 		mirrorRoot = filepath.Join(filepath.Dir(cfg.WorkRoot), "mirrors")
 	}
+	artifactRoot := cfg.ArtifactRoot
+	if artifactRoot == "" {
+		artifactRoot = filepath.Join(filepath.Dir(cfg.WorkRoot), "artifacts")
+	}
 	e := &Engine{
 		store:         cfg.Store,
 		exec:          cfg.Executor,
@@ -124,6 +135,7 @@ func New(cfg Config) *Engine {
 		workRoot:      cfg.WorkRoot,
 		workspaceRepo: cfg.WorkspaceRepo,
 		workspaces:    workspace.New(mirrorRoot, cfg.WorkRoot, cfg.Executor),
+		artifacts:     artifact.New(artifactRoot),
 		llmBinary:     cfg.LLMBinary,
 		killGrace:     cfg.KillGrace,
 		numShards:     cfg.NumShards,

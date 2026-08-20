@@ -193,6 +193,7 @@ func (e *Engine) startLLM(ctx context.Context, c domain.CmdStartNode, workDir, d
 // this function reporting SchemaValid: false like any other actor.
 func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, workDir, dir, outputPath, schemaPath string, pid int) {
 	defer e.releaseAndDrain(ctx, c.ExecID)
+	defer e.collectLogs(ctx, c.RunID, c.NodeID, c.ExecID, dir)
 
 	res, err := e.exec.Wait(ctx, pid)
 	if err != nil {
@@ -227,8 +228,17 @@ func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, workDir, di
 		_ = e.appendNext(ctx, c.RunID, domain.NodeOutputReceived{RunID: c.RunID, NodeID: c.NodeID, ExecID: c.ExecID, SchemaValid: false})
 		return
 	}
+	inline, ref, err := e.storeOutput(body)
+	if err != nil {
+		_ = e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure, "storing output artifact: "+err.Error())
+		return
+	}
+	var raw json.RawMessage
+	if inline != nil {
+		raw = json.RawMessage(inline)
+	}
 	_ = e.appendNext(ctx, c.RunID, domain.NodeOutputReceived{
-		RunID: c.RunID, NodeID: c.NodeID, ExecID: c.ExecID, SchemaValid: valid, Output: json.RawMessage(body),
+		RunID: c.RunID, NodeID: c.NodeID, ExecID: c.ExecID, SchemaValid: valid, Output: raw, OutputRef: ref,
 	})
 }
 
