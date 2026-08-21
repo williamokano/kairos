@@ -96,6 +96,39 @@ func runDiffFixture(t *testing.T) (eng *engine.Engine, runID, baseRef string) {
 	if final.Status != domain.RunSucceeded {
 		t.Fatalf("fixture run Status = %s, want succeeded; state=%+v", final.Status, final)
 	}
+
+	// Real flake, found under -race with concurrent CPU load: a node's
+	// own success (NodeOutputReceived, what runToTerminal above waits
+	// for) and maybeSnapshotWorkspace's own WorkspaceSnapshotTaken append
+	// are two separate, sequential appends on the SAME reapShell
+	// goroutine — genuinely durable, but not atomic with each other
+	// (ADR 0006: the snapshot is deliberately best-effort, decoupled from
+	// the node's own success/failure). n2 is this fixture's LAST node, so
+	// the run can already read as RunSucceeded a moment before n2's own
+	// snapshot has actually landed; every test below reads Engine.Diff
+	// right after this fixture returns and genuinely needs both
+	// snapshots to already be on the log, so wait for them explicitly
+	// rather than assuming "the run finished" already implies it.
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		envs, err := st.Read(ctx, runID)
+		if err != nil {
+			t.Fatalf("Read: %v", err)
+		}
+		var snaps int
+		for _, e := range envs {
+			if _, ok := e.Event.(domain.WorkspaceSnapshotTaken); ok {
+				snaps++
+			}
+		}
+		if snaps >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("workspace.snapshot.taken count = %d, want 2 (one per workspace: write node)", snaps)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	return eng, runID, baseRef
 }
 

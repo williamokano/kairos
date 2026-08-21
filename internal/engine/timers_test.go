@@ -134,20 +134,37 @@ func TestEngine_waitTimeoutEscalateParksAndCreatesHumanTask(t *testing.T) {
 	}
 
 	// A second human.task.created (this one for the Parked escalation)
-	// must also be recorded, not silently dropped.
-	envs, err := st.Read(ctx, runID)
-	if err != nil {
-		t.Fatalf("Read: %v", err)
-	}
+	// must also be recorded, not silently dropped. Real flake, found
+	// under -race with concurrent CPU load: reaching ExecParked (above)
+	// and the escalation's own human.task.created append are two
+	// separate, sequential appends on the SAME background timer
+	// goroutine — genuinely durable, but not atomic with each other, so
+	// there is a real (if normally sub-millisecond) window between them.
+	// A single immediate read right after observing ExecParked assumed
+	// that window was always zero; under heavy scheduler contention it
+	// is not, and a one-shot read could catch taskCount at 1 correctly,
+	// a heisenbug this poll (mirroring the ExecParked wait above rather
+	// than reading exactly once) resolves the same way every other
+	// eventually-consistent assertion in this file already does.
+	deadline = time.Now().Add(3 * time.Second)
 	var taskCount int
-	for _, e := range envs {
-		if _, ok := e.Event.(domain.HumanTaskCreated); ok {
-			taskCount++
+	for time.Now().Before(deadline) {
+		envs, err := st.Read(ctx, runID)
+		if err != nil {
+			t.Fatalf("Read: %v", err)
 		}
+		taskCount = 0
+		for _, e := range envs {
+			if _, ok := e.Event.(domain.HumanTaskCreated); ok {
+				taskCount++
+			}
+		}
+		if taskCount >= 2 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	if taskCount < 2 {
-		t.Fatalf("human.task.created count = %d, want at least 2 (the original wait + the escalation)", taskCount)
-	}
+	t.Fatalf("human.task.created count = %d, want at least 2 (the original wait + the escalation)", taskCount)
 }
 
 // TestEngine_restartCatchesUpAnOverdueWaitTimeout proves the in-memory

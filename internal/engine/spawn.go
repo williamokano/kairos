@@ -435,6 +435,29 @@ func (e *Engine) reconcileSpawnJoinLocked(ctx context.Context, parentRunID, node
 	if err != nil || !ok {
 		return err
 	}
+	// Real bug, found by TestEngine_spawnOnChildFailureDegradeStillSucceeds
+	// under -race: when every planned child happens to already be
+	// terminal by the time the FIRST child's completion is processed
+	// (fast-failing children racing each other), that one call resolves
+	// the whole join in one shot — and the coordinator's own wait exec
+	// is no longer ExecWaiting by the time a SECOND child's
+	// handleChildRunFinished calls in here again for the exact same
+	// nodeID/execID. Without this guard, that redundant call re-derives
+	// the identical "join done" branch and tries to append
+	// NodeWaitResolved a second time against a run that has already
+	// moved on (possibly all the way to terminal) — legalRunEvent
+	// rejects it as domain.ErrIllegalTransition, and — because the join
+	// was already fully resolved on the first call — this second call
+	// never gets to run.degraded either, silently dropping it. This
+	// function's own doc comment promises "always safe to call
+	// redundantly"; this check is what actually makes that true, the
+	// same way handleChildRunFinished's own doc comment already relies
+	// on for a non-spawn run's TriggerRef prefix mismatch.
+	if execs := parentState.Executions[domain.NodeID(nodeID)]; len(execs) > 0 {
+		if last := execs[len(execs)-1]; last.ExecID == execID && last.Status != domain.ExecWaiting {
+			return nil
+		}
+	}
 	definitionRef, err := e.firstEventDefinitionRef(ctx, parentRunID)
 	if err != nil {
 		return err
@@ -508,10 +531,31 @@ func (e *Engine) reconcileSpawnJoinLocked(ctx context.Context, parentRunID, node
 		return e.resolveSpawnJoin(ctx, definitionRef, parentRunID, nodeID, execID, len(spawned), 0, dispatchCmds)
 	}
 	if nd.Join.OnChildFailure == "degrade" {
-		if parentState.Status == domain.RunDegradedS {
-			if err := e.appendNext(ctx, parentRunID, domain.RunDegradedResolved{RunID: parentRunID}); err != nil {
-				return fmt.Errorf("recording run.degraded.resolved: %w", err)
+		// Real bug, found by TestEngine_spawnOnChildFailureDegradeStillSucceeds
+		// under -race: when every planned child happens to already be
+		// terminal the first time ANY of them is processed (fast-failing
+		// children finishing close enough together that the "not all
+		// done yet" branch above never runs even once for this join),
+		// the run never visited RunDegradedS at all — so gating this
+		// append on parentState.Status == RunDegradedS silently skipped
+		// recording run.degraded, even though a real child failure is
+		// being absorbed right here. 03-workflows.md's "Degraded
+		// survives as a first-class state" means every failure absorbed
+		// by onChildFailure: degrade passes through it, whether or not
+		// there were stragglers left to wait for — so this now always
+		// records RunDegraded first when the run hasn't already passed
+		// through it (parentState.Status == RunRunning), then always
+		// resolves it, rather than only resolving a degradation that
+		// happened to already be on the log.
+		if parentState.Status == domain.RunRunning {
+			if err := e.appendNext(ctx, parentRunID, domain.RunDegraded{
+				RunID: parentRunID, Reason: fmt.Sprintf("%d of %d spawned children failed", failedCount, terminalCount),
+			}); err != nil {
+				return fmt.Errorf("recording run.degraded: %w", err)
 			}
+		}
+		if err := e.appendNext(ctx, parentRunID, domain.RunDegradedResolved{RunID: parentRunID}); err != nil {
+			return fmt.Errorf("recording run.degraded.resolved: %w", err)
 		}
 		return e.resolveSpawnJoin(ctx, definitionRef, parentRunID, nodeID, execID, len(spawned), failedCount, dispatchCmds)
 	}

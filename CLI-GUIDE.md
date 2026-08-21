@@ -46,6 +46,9 @@ reachable off-host.
 | `kairos conversation show <runID>` | a run's message thread (for `wait: conversation` nodes) |
 | `kairos conversation send <runID> <text>` | post a message, resolving a `wait: conversation` node |
 | `kairos approve <runID> --node <id> --confirm <decision> --reason <text> [--typed-confirm <word>]` | answer a `wait: human` node — deliberately has no `--yes`/`--all`, every decision needs a reason |
+| `kairos cancel <runID> --reason <text>` | stop a run, signalling every in-flight node execution and compensating every applied effect — no `--compensate` toggle, it always compensates |
+| `kairos diff <runID> [nodeID]` | a run's (or one node's) file-level change against its workspace, as a real unified diff |
+| `kairos cost` | today's admission-time spend estimate against the configured daily cap (an ESTIMATE, never reconciled against real spend) |
 | `kairos doctor` | host preflight: what the daemon can/can't run (`git`, `gh` on `PATH`, etc.) |
 | `kairos db verify` | replay every event stream and diff it against the persisted projections |
 | `kairos db reindex` | force every projection to rebuild from the log |
@@ -137,6 +140,53 @@ whole log and diffs it against the durable projections):
 ```sh
 kairos db verify
 # clean
+```
+
+Cancel a still-running run instead of waiting it out — this signals every in-flight node
+execution and compensates every applied effect (there is no `--compensate` toggle: cancellation
+always compensates):
+
+```sh
+kairos cancel 01H... --reason "no longer needed"
+# cancelled
+
+kairos show 01H...
+# status: cancelled
+# nodes:
+#   NODE  EXEC ID    STATUS       ATTEMPT  ITERATION
+#   nap   nap#a1.i1  interrupted  1        1
+```
+
+For a `workspace: write` node (§7 below wires one up for real), `kairos diff` shows exactly what
+it changed — a real `git diff`, not a description of one:
+
+```sh
+kairos diff 01H...
+# 846b188..242e3f2
+#   list.go +1 -1
+# ---
+# diff --git a/list.go b/list.go
+# index b7f937b..225a826 100644
+# --- a/list.go
+# +++ b/list.go
+# @@ -1,5 +1,5 @@
+#  package orders
+#
+#  func List() int {
+# -	return 1
+# +	return 2
+#  }
+
+kairos diff 01H... <nodeID>   # scope the diff to one node's own before/after
+```
+
+`kairos cost` reads back today's admission-time spend estimate against the configured daily cap
+— an ESTIMATE (NL-30), never reconciled against what a run actually cost:
+
+```sh
+kairos cost
+# 2026-08-21: no admitted request has recorded a cost estimate yet (cap $25.00)
+# note: this is an admission-time ESTIMATE, never reconciled against real spend (NL-30)
 ```
 
 ## 6. A workflow with a human decision
