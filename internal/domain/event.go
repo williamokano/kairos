@@ -565,6 +565,14 @@ func (EffectCompensated) isEvent()          {}
 type ConversationMessageAppended struct {
 	Role string
 	Text string
+	// Author is a real, deliberate divergence from 10-webui.md's "no
+	// multi-user/accounts" non-goal — the user explicitly asked for
+	// attribution (never authorization: everyone can still see/act on
+	// everything) across CLI/web/TUI. Empty for every message recorded
+	// before this field existed, and for any caller that doesn't supply
+	// one — never required, so no schema/fixture break. See
+	// internal/identity's doc comment for the identity model this feeds.
+	Author string
 }
 
 func (ConversationMessageAppended) EventType() string { return "conversation.message.appended" }

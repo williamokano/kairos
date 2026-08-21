@@ -18,6 +18,10 @@ type AdHocOptions struct {
 	Actor                   string
 	ResumeSessionID         string
 	ConversationRunOverride string
+	// WorkDir, when non-empty, becomes the synthesized node's
+	// WorkDirOverride — a `kairos session`'s real directory (internal/
+	// project). Empty means the normal scratch dir (today's behaviour).
+	WorkDir string
 }
 
 // SynthesizeAdHoc builds `kairos do`'s ad hoc single-node workflow — the
@@ -65,6 +69,9 @@ func SynthesizeAdHoc(homeDir, text string, opts AdHocOptions) (path string, err 
 	}
 	if opts.ConversationRunOverride != "" {
 		node["conversationRunOverride"] = opts.ConversationRunOverride
+	}
+	if opts.WorkDir != "" {
+		node["workDirOverride"] = opts.WorkDir
 	}
 
 	doc := map[string]any{

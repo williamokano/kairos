@@ -55,6 +55,12 @@ type yamlNode struct {
 	PostOutputToConversation bool   `json:"postOutputToConversation"`
 	ConversationRunOverride  string `json:"conversationRunOverride"`
 	ResumeSessionID          string `json:"resumeSessionId"`
+	// WorkDirOverride backs a `kairos session`-bound `kairos do` turn
+	// (internal/project) — a Session's own directory (a Project's git
+	// worktree, or its bare path, per ADR 0014) rather than the usual
+	// scratch dir or a fresh workspace: write reference-clone. See
+	// NodeDef.WorkDirOverride's doc comment.
+	WorkDirOverride string `json:"workDirOverride"`
 }
 
 type yamlResources struct {

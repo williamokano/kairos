@@ -30,6 +30,8 @@ func registerMutations(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("POST /runs/{id}/cancel", handleCancelRun(deps))
 	mux.HandleFunc("POST /runs/{id}/fork", handleForkRun(deps))
 	mux.HandleFunc("POST /sources/{id}/pause", handlePauseSource(deps))
+	mux.HandleFunc("POST /projects", handleCreateProject(deps))
+	mux.HandleFunc("POST /sessions", handleCreateSession(deps))
 }
 
 func handleCreateRun(deps Deps) http.HandlerFunc {

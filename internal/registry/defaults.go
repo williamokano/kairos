@@ -151,6 +151,7 @@ func defaultNode(yn yamlNode, rn raw) (NodeDef, error) {
 		PostOutputToConversation: yn.PostOutputToConversation,
 		ConversationRunOverride:  yn.ConversationRunOverride,
 		ResumeSessionID:          yn.ResumeSessionID,
+		WorkDirOverride:          yn.WorkDirOverride,
 	}
 	if nd.Workspace == "" {
 		if yn.Actor == "spawn" {

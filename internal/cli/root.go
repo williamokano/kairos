@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/williamokano/kairos/internal/config"
+	"github.com/williamokano/kairos/internal/identity"
 	"github.com/williamokano/kairos/internal/version"
 )
 
@@ -138,6 +139,8 @@ func newRootCmd(app *appCtx) *cobra.Command {
 	root.AddCommand(newSrcCmd(app))
 	root.AddCommand(newWebCmd(app))
 	root.AddCommand(newCostCmd(app))
+	root.AddCommand(newProjectCmd(app))
+	root.AddCommand(newSessionCmd(app))
 	return root
 }
 
@@ -164,6 +167,7 @@ func ensureClient(cmd *cobra.Command, app *appCtx) (*Client, error) {
 	app.sockPath = sockPath
 	app.homePath = cfg.Home
 	client := NewClient(sockPath)
+	client.User = identity.FromEnv(cfg.KairosUser)
 	app.client = client
 
 	if err := ensureDaemon(cmd.Context(), client, app.starter, 5*time.Second); err != nil {

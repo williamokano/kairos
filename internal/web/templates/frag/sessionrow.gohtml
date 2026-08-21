@@ -1,0 +1,3 @@
+{{define "frag/sessionrow"}}
+<tr id="session-{{.ID}}"><td>{{id .ID}}</td><td>{{.Actor}}</td><td>{{.WorkDir}}</td><td>{{.RunCount}}</td><td>{{relTime .LastUsedAt}}</td><td>{{.CreatedBy}}</td></tr>
+{{end}}

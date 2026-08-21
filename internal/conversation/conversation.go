@@ -28,6 +28,14 @@ import (
 // and losing a typed message to an exhausted retry budget is a worse
 // failure mode than the extra, still-cheap, re-reads cost.
 func AppendMessage(ctx context.Context, store eventstore.Store, runID, role, text string) error {
+	return AppendMessageAs(ctx, store, runID, role, text, "")
+}
+
+// AppendMessageAs is AppendMessage plus an attributed author (a display
+// name/username — see internal/identity — never a login identity; "no
+// authorization at the moment" per the user's own framing). Empty author
+// behaves exactly like AppendMessage.
+func AppendMessageAs(ctx context.Context, store eventstore.Store, runID, role, text, author string) error {
 	streamID := eventstore.ConversationStreamID(runID)
 	const maxRetries = 50
 	for i := 0; i < maxRetries; i++ {
@@ -36,7 +44,7 @@ func AppendMessage(ctx context.Context, store eventstore.Store, runID, role, tex
 			return fmt.Errorf("reading conversation %s: %w", runID, err)
 		}
 		_, err = store.AppendIf(ctx, streamID, len(envs), []domain.Event{
-			domain.ConversationMessageAppended{Role: role, Text: text},
+			domain.ConversationMessageAppended{Role: role, Text: text, Author: author},
 		}, eventstore.AppendMeta{Actor: role, CorrelationID: runID})
 		if err == nil {
 			return nil

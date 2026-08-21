@@ -175,7 +175,60 @@ type Store interface {
 	// plain durable KV write, one row per day.
 	SetAdmissionSpend(ctx context.Context, day string, spentUSD float64) error
 
+	// UpsertProject creates or updates a Project row (internal/project) —
+	// a named binding to a real working directory. Same "daemon-owned,
+	// plain durable row" posture as UpsertSource.
+	UpsertProject(ctx context.Context, p Project) error
+	// ListProjects reads every Project, ordered by name.
+	ListProjects(ctx context.Context) ([]Project, error)
+	// GetProject reads one Project by id.
+	GetProject(ctx context.Context, id string) (Project, bool, error)
+	// GetProjectByName reads one Project by its unique name — `kairos
+	// session start --project <name>`'s lookup.
+	GetProjectByName(ctx context.Context, name string) (Project, bool, error)
+
+	// UpsertSession creates or updates a Session row (internal/project) —
+	// a stable, resumable chat identity, optionally bound to a Project.
+	UpsertSession(ctx context.Context, s Session) error
+	// ListSessions reads every Session, most-recently-used first.
+	ListSessions(ctx context.Context) ([]Session, error)
+	// GetSession reads one Session by id.
+	GetSession(ctx context.Context, id string) (Session, bool, error)
+	// TouchSession records one chat turn's outcome against a Session:
+	// its native LLM session id (for the NEXT turn's --resume), the ad
+	// hoc run that turn created, and bumps run_count/last_used_at.
+	// ConversationRunID is set to lastRunID ONLY the first time (run_count
+	// was 0) and left untouched on every later turn.
+	TouchSession(ctx context.Context, id, nativeSessionID, lastRunID string) error
+
 	Close() error
+}
+
+// Project is one named working-directory binding (internal/project).
+type Project struct {
+	ID, Name, RepoPath string
+	GitBacked          bool
+	CreatedBy          string
+	CreatedAt          time.Time
+}
+
+// Session is one stable, resumable chat identity (internal/project).
+// WorkDir is resolved once at creation: a Project's real git worktree
+// path (Branch non-empty), a Project's bare RepoPath (Branch empty, not
+// git-backed), or an ad hoc scratch dir (ProjectID empty).
+type Session struct {
+	ID, ProjectID, Actor, WorkDir, Branch string
+	NativeSessionID, LastRunID            string
+	// ConversationRunID is the FIRST ad hoc run ever created for this
+	// Session — set once, never overwritten. Every turn's message (and
+	// the LLM's reply) lands in this run's Conversation, giving one
+	// continuous thread across many turns even though (per
+	// L24-kairos-do.md's documented constraint) each turn is its own new
+	// run under the hood.
+	ConversationRunID     string
+	RunCount              int
+	CreatedBy             string
+	CreatedAt, LastUsedAt time.Time
 }
 
 // Source is one configured trigger source's persisted row.

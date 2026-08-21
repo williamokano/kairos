@@ -46,7 +46,23 @@ type Deps struct {
 	// AllowedHosts is the Host-header allowlist (row 3) — normally
 	// {"127.0.0.1:<port>", "localhost:<port>"}.
 	AllowedHosts []string
+	// NoAuth, when true, bypasses the token/cookie/bearer check entirely
+	// — set ONLY when the caller supplied the exact RequiredNoAuthAck
+	// string (checked once at boot, in cmd/kairos/serve.go, matching
+	// Listen's RequiredNonLoopbackAck pattern), for a user running behind
+	// their own auth layer (e.g. Cloudflare Access) who wants Kairos's
+	// own token exchange gone. The Host-allowlist and Origin/
+	// Sec-Fetch-Site checks are NOT about identity — they stay on
+	// unconditionally regardless of this flag (see withSecurity).
+	NoAuth bool
 }
+
+// RequiredNoAuthAck is the exact acknowledgement string that must be
+// supplied (via KAIROS_WEB_NO_AUTH_ACK, checked in cmd/kairos/serve.go)
+// to run with Deps.NoAuth true — auth stays ON by default; this is a
+// narrow, explicit, documented escape hatch, not a new default, matching
+// RequiredNonLoopbackAck's exact pattern one function up.
+const RequiredNoAuthAck = "yes-i-have-my-own-auth-in-front"
 
 // GenerateToken returns a fresh 32-byte, hex-encoded token — regenerated
 // every `kairos serve`, per 10-webui.md's auth row 2. Callers persist it to
@@ -96,6 +112,21 @@ func withSecurity(deps Deps, next http.Handler) http.Handler {
 
 		if !hostAllowed(r.Host, deps.AllowedHosts) {
 			http.Error(w, "host not allowed", http.StatusForbidden)
+			return
+		}
+
+		if deps.NoAuth {
+			// Identity (token/cookie/bearer) is skipped entirely — the
+			// operator declared their own auth layer sits in front. The
+			// Host allowlist above and the Origin/Sec-Fetch-Site check
+			// below are NOT about identity (they block DNS rebinding and
+			// cross-site mutation respectively) and still apply
+			// unconditionally.
+			if isMutating(r.Method) && !originAllowed(r, deps.AllowedHosts) {
+				http.Error(w, "origin not allowed", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
 			return
 		}
 

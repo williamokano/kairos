@@ -18,6 +18,7 @@ import (
 
 	"github.com/williamokano/kairos/internal/engine"
 	"github.com/williamokano/kairos/internal/eventstore"
+	"github.com/williamokano/kairos/internal/project"
 )
 
 // DoctorCheck is one named pass/fail/detail result, computed once at
@@ -50,6 +51,10 @@ type Deps struct {
 	// DefaultDoActor is cfg.DefaultDoActor — the actor kind POST /do
 	// synthesizes its ad hoc node against.
 	DefaultDoActor string
+	// Projects is internal/project's Manager — Project/Session CRUD and
+	// worktree provisioning, backing POST /projects, POST /sessions, and
+	// POST /do's --session resolution.
+	Projects *project.Manager
 }
 
 // NewMux builds the daemon's route table.
@@ -74,6 +79,8 @@ func NewMux(deps Deps) *http.ServeMux {
 	registerSourceRoutes(mux, deps)
 	registerLifecycleRoutes(mux, deps)
 	registerCostRoute(mux, deps)
+	registerProjectRoutes(mux, deps)
+	registerSessionRoutes(mux, deps)
 	return mux
 }
 

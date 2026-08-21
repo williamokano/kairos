@@ -1,0 +1,26 @@
+{{define "sessions"}}
+<h1>Sessions</h1>
+<section class="composer">
+  <form hx-post="/sessions" hx-target="#session-rows" hx-swap="afterbegin">
+    <input type="hidden" name="nonce" value="{{.Nonce}}">
+    <select name="project">
+      <option value="">(no project — ad hoc scratch dir)</option>
+      {{range .Projects}}<option value="{{.Name}}">{{.Name}} — {{.RepoPath}}</option>{{end}}
+    </select>
+    <input name="actor" placeholder="actor (default: claude)">
+    <button type="submit">start session ⏎</button>
+  </form>
+</section>
+
+{{if .FetchErr}}
+  <p class="error">loading sessions: {{.FetchErr}}</p>
+{{else}}
+<table>
+  <thead><tr><th>id</th><th>actor</th><th>work dir</th><th>runs</th><th>last used</th><th>by</th></tr></thead>
+  <tbody id="session-rows">
+  {{range .Sessions}}{{template "frag/sessionrow" .}}{{end}}
+  </tbody>
+</table>
+{{if eq (len .Sessions) 0}}<p class="empty">No sessions yet — start one above, then use it from <a href="/chat">chat</a>.</p>{{end}}
+{{end}}
+{{end}}

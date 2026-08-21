@@ -57,4 +57,8 @@ var Ops = []Op{
 	{Method: "POST", Path: "/selfcheck", CLIVerb: "doctor"},
 	{Method: "POST", Path: "/db/backup", CLIVerb: "db backup"},
 	{Method: "GET", Path: "/cost", CLIVerb: "cost", WebPath: "GET /cost"},
+	{Method: "POST", Path: "/projects", CLIVerb: "project create", WebPath: "POST /projects"},
+	{Method: "GET", Path: "/projects", CLIVerb: "project ls", WebPath: "GET /projects"},
+	{Method: "POST", Path: "/sessions", CLIVerb: "session start", WebPath: "POST /sessions"},
+	{Method: "GET", Path: "/sessions", CLIVerb: "session ls", WebPath: "GET /sessions"},
 }

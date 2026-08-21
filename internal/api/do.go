@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/oklog/ulid/v2"
 
 	"github.com/williamokano/kairos/internal/conversation"
 	"github.com/williamokano/kairos/internal/domain"
 	"github.com/williamokano/kairos/internal/eventstore"
+	"github.com/williamokano/kairos/internal/identity"
 	"github.com/williamokano/kairos/internal/registry"
 	"github.com/williamokano/kairos/internal/tasksource"
 )
@@ -25,6 +27,16 @@ type doRequest struct {
 	// continue rather than start fresh — see doRequest's handler doc
 	// comment for the full turn-2+ mechanics.
 	ContinueRunID string `json:"continueRunId,omitempty"`
+	// SessionID, when set, elevates continuation to a stable, addressable
+	// entity (internal/project.Session) instead of chaining through the
+	// last run's id: WorkDir/Actor/the native LLM session id all come
+	// from the Session's own record, and every turn — first or Nth —
+	// lands in the SAME session.ConversationRunID. Mutually exclusive
+	// with ContinueRunID in practice (SessionID wins if both are set);
+	// ContinueRunID remains a lower-level escape hatch for a caller that
+	// wants to continue one specific run's chat without ever creating a
+	// Session at all.
+	SessionID string `json:"sessionId,omitempty"`
 }
 
 type doResponse struct {
@@ -71,7 +83,35 @@ func handleDo(deps Deps) http.HandlerFunc {
 
 		opts := registry.AdHocOptions{Actor: deps.DefaultDoActor}
 		conversationRunID := req.ContinueRunID
-		if req.ContinueRunID != "" {
+		var kairosSession eventstore.Session
+		var haveKairosSession bool
+
+		switch {
+		case req.SessionID != "":
+			if deps.Projects == nil {
+				writeError(w, http.StatusServiceUnavailable, "invariant_violation", "session support not wired into this daemon")
+				return
+			}
+			sess, ok, err := deps.Projects.GetSession(r.Context(), req.SessionID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "invariant_violation", err.Error())
+				return
+			}
+			if !ok {
+				writeError(w, http.StatusNotFound, "not_found", "no such session: "+req.SessionID)
+				return
+			}
+			kairosSession, haveKairosSession = sess, true
+			opts.Actor = sess.Actor
+			opts.WorkDir = sess.WorkDir
+			if sess.NativeSessionID != "" {
+				opts.ResumeSessionID = sess.NativeSessionID
+			}
+			if sess.ConversationRunID != "" {
+				opts.ConversationRunOverride = sess.ConversationRunID
+				conversationRunID = sess.ConversationRunID
+			}
+		case req.ContinueRunID != "":
 			sessionID, ok, err := lastAdHocSessionID(r.Context(), deps.Store, req.ContinueRunID)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "invariant_violation", err.Error())
@@ -109,9 +149,25 @@ func handleDo(deps Deps) http.HandlerFunc {
 		if conversationRunID == "" {
 			conversationRunID = runID
 		}
-		if err := conversation.AppendMessage(r.Context(), deps.Store, conversationRunID, "human", req.Text); err != nil {
+		if err := conversation.AppendMessageAs(r.Context(), deps.Store, conversationRunID, "human", req.Text, identity.FromRequest(r)); err != nil {
 			writeError(w, http.StatusInternalServerError, "invariant_violation", "posting message to conversation: "+err.Error())
 			return
+		}
+
+		if haveKairosSession {
+			// llm.session.started is appended by dispatchLLMActor before
+			// the actor's process even finishes (internal/engine/
+			// actor_llm.go) — well before the turn's real work
+			// completes — so a short bounded wait here (not the full
+			// turn) is enough to capture it for the NEXT turn's
+			// --resume. If it never appears (engine backlog, a
+			// dispatch failure), the next turn simply mints a fresh
+			// native session — the same graceful fallback
+			// resolveSession already uses for every other
+			// session-resume miss in this codebase — rather than this
+			// request hanging or failing.
+			sid, _, _ := waitForAdHocSessionID(r.Context(), deps.Store, runID, 2*time.Second)
+			_ = deps.Projects.RecordTurn(r.Context(), kairosSession.ID, sid, runID)
 		}
 
 		writeJSON(w, http.StatusCreated, doResponse{RunID: runID, ConversationRunID: conversationRunID})
@@ -142,4 +198,28 @@ func lastAdHocSessionID(ctx context.Context, store eventstore.Store, runID strin
 		found = true
 	}
 	return sessionID, found, nil
+}
+
+// waitForAdHocSessionID polls lastAdHocSessionID for up to timeout,
+// tolerating the ordinary async gap between "run created" (this
+// handler's own return) and "the dispatched node's llm.session.started
+// fact is durable" — see handleDo's kairosSession branch for why a short
+// wait here is worth it (a Kairos Session's very reason to exist is
+// resuming the SAME native session on the next turn).
+func waitForAdHocSessionID(ctx context.Context, store eventstore.Store, runID string, timeout time.Duration) (string, bool, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		sid, ok, err := lastAdHocSessionID(ctx, store, runID)
+		if err != nil || ok {
+			return sid, ok, err
+		}
+		if time.Now().After(deadline) {
+			return "", false, nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", false, ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }

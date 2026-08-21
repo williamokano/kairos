@@ -15,6 +15,8 @@ func registerChatRoutes(mux *http.ServeMux, deps Deps) {
 
 type chatPageData struct {
 	RunID     string // the conversation being continued, "" for a fresh chat
+	SessionID string // a stable kairos session (?session=), "" for a plain per-run chat
+	Sessions  []cli.Session
 	Messages  []cli.ConversationMessage
 	FormNonce string
 }
@@ -30,10 +32,14 @@ type chatPageData struct {
 func handleChatPage(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		runID := r.URL.Query().Get("run")
-		data := chatPageData{RunID: runID, FormNonce: nonce()}
+		sessionID := r.URL.Query().Get("session")
+		data := chatPageData{RunID: runID, SessionID: sessionID, FormNonce: nonce()}
+		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+		defer cancel()
+		if sessions, err := deps.Client.ListSessions(ctx); err == nil {
+			data.Sessions = sessions
+		}
 		if runID != "" {
-			ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
-			defer cancel()
 			msgs, err := deps.Client.GetConversation(ctx, runID)
 			if err != nil {
 				http.Error(w, "loading conversation: "+err.Error(), http.StatusBadGateway)
@@ -68,14 +74,18 @@ func handleChatSend(deps Deps) http.HandlerFunc {
 			return
 		}
 		continueRunID := r.PostForm.Get("continueRunId")
+		sessionID := r.PostForm.Get("sessionId")
 		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 		defer cancel()
-		resp, err := deps.Client.Do(ctx, text, continueRunID)
+		resp, err := deps.Client.DoWithSession(ctx, text, continueRunID, sessionID)
 		if err != nil {
 			writeChatError(w, http.StatusBadGateway, "sending: "+err.Error())
 			return
 		}
 		dest := "/chat?run=" + resp.ConversationRunID
+		if sessionID != "" {
+			dest += "&session=" + sessionID
+		}
 		// htmx's own XHR would otherwise follow a plain 3xx and swap the
 		// destination page's body into #chat-error (this form's small
 		// hx-target) — HX-Redirect tells htmx to do a real, full-page

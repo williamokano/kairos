@@ -1,0 +1,23 @@
+{{define "projects"}}
+<h1>Projects</h1>
+<section class="composer">
+  <form hx-post="/projects" hx-target="#project-rows" hx-swap="afterbegin">
+    <input type="hidden" name="nonce" value="{{.Nonce}}">
+    <input name="name" placeholder="project name…" required>
+    <input name="path" placeholder="/real/path/on/this/machine" required>
+    <button type="submit">create ⏎</button>
+  </form>
+</section>
+
+{{if .FetchErr}}
+  <p class="error">loading projects: {{.FetchErr}}</p>
+{{else}}
+<table>
+  <thead><tr><th>id</th><th>name</th><th>path</th><th>git</th></tr></thead>
+  <tbody id="project-rows">
+  {{range .Projects}}{{template "frag/projectrow" .}}{{end}}
+  </tbody>
+</table>
+{{if eq (len .Projects) 0}}<p class="empty">No projects yet — create one above.</p>{{end}}
+{{end}}
+{{end}}

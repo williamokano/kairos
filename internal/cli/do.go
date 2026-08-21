@@ -14,7 +14,7 @@ import (
 // trigger source uses, so the run it creates is exactly as traceable and
 // durable as any other.
 func newDoCmd(app *appCtx) *cobra.Command {
-	var continueRunID string
+	var continueRunID, sessionID string
 	cmd := &cobra.Command{
 		Use:   "do <text>",
 		Short: "start (or continue) an ad hoc task from free text",
@@ -26,7 +26,7 @@ func newDoCmd(app *appCtx) *cobra.Command {
 			}
 			ctx, cancel := withTimeout(cmd)
 			defer cancel()
-			resp, err := client.Do(ctx, args[0], continueRunID)
+			resp, err := client.DoWithSession(ctx, args[0], continueRunID, sessionID)
 			if err != nil {
 				return err
 			}
@@ -38,5 +38,6 @@ func newDoCmd(app *appCtx) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&continueRunID, "continue", "", "continue an existing ad hoc conversation's run id, resuming its LLM session natively")
+	cmd.Flags().StringVar(&sessionID, "session", "", "send this turn within a stable kairos session (see `kairos session start`); takes priority over --continue")
 	return cmd
 }

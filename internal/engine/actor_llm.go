@@ -54,7 +54,17 @@ func (e *Engine) dispatchLLMActor(ctx context.Context, nd registry.NodeDef, c do
 	}
 
 	workDir := dir
-	if nd.Workspace == registry.WorkspaceWrite {
+	switch {
+	case nd.WorkDirOverride != "":
+		// A `kairos session`'s own directory (internal/project's Project
+		// worktree, or its bare path) — takes priority over the normal
+		// workspace: write clone path entirely; a session is bound to
+		// ONE real directory for its whole lifetime, not a fresh
+		// reference-clone per turn. Dir (the per-exec scratch dir) is
+		// still used for output.json/schema/logs/HOME below — only the
+		// process's real cwd changes.
+		workDir = nd.WorkDirOverride
+	case nd.Workspace == registry.WorkspaceWrite:
 		if e.workspaceRepo == "" {
 			return e.startThenFail(ctx, c, domain.FailFailure,
 				"node declares workspace: write but the engine has no configured WorkspaceRepo")

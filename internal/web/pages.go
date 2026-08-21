@@ -31,6 +31,8 @@ func registerPages(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /sources", handleSourcesPage(deps))
 	mux.HandleFunc("GET /runners", handleRunnersPage(deps))
 	mux.HandleFunc("GET /flows", handleFlowsPage(deps))
+	mux.HandleFunc("GET /projects", handleProjectsPage(deps))
+	mux.HandleFunc("GET /sessions", handleSessionsPage(deps))
 }
 
 type waitingItem struct{ RunID, NodeID string }

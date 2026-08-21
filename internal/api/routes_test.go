@@ -67,6 +67,24 @@ func (nopStore) RecordRunCreation(context.Context, string, string) error { retur
 func (nopStore) ListOpenHumanTasks(context.Context) ([]eventstore.OpenHumanTask, error) {
 	return nil, nil
 }
+func (nopStore) UpsertProject(context.Context, eventstore.Project) error { return nil }
+func (nopStore) ListProjects(context.Context) ([]eventstore.Project, error) {
+	return nil, nil
+}
+func (nopStore) GetProject(context.Context, string) (eventstore.Project, bool, error) {
+	return eventstore.Project{}, false, nil
+}
+func (nopStore) GetProjectByName(context.Context, string) (eventstore.Project, bool, error) {
+	return eventstore.Project{}, false, nil
+}
+func (nopStore) UpsertSession(context.Context, eventstore.Session) error { return nil }
+func (nopStore) ListSessions(context.Context) ([]eventstore.Session, error) {
+	return nil, nil
+}
+func (nopStore) GetSession(context.Context, string) (eventstore.Session, bool, error) {
+	return eventstore.Session{}, false, nil
+}
+func (nopStore) TouchSession(context.Context, string, string, string) error { return nil }
 
 // TestAPI_everyOpIsRegistered asserts every apispec.Op is actually
 // reachable on the mux NewMux builds — the "routes are registered" half

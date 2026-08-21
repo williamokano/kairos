@@ -197,6 +197,16 @@ type NodeDef struct {
 	PostOutputToConversation bool
 	ConversationRunOverride  string
 	ResumeSessionID          string
+	// WorkDirOverride, when non-empty, is used verbatim as the LLM
+	// actor's real working directory instead of the normal per-exec
+	// scratch dir or a workspace: write reference-clone — a `kairos
+	// session`'s own directory (its Project's git worktree, or its bare
+	// path if the Project isn't git-backed; see ADR 0014 and
+	// internal/project). The per-exec scratch dir is still used for
+	// output.json/schema/logs and HOME's credential isolation — only the
+	// process's WorkDir changes (internal/executor/local.ExecSpec
+	// already separates Dir from WorkDir for exactly this reason).
+	WorkDirOverride string
 }
 
 // RestartPolicy names how the engine treats a NodeExecution the log says

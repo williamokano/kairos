@@ -111,6 +111,17 @@ type Config struct {
 	// WebNonLoopbackAck is the acknowledgement string required to bind
 	// WebAddr to a non-loopback host — empty by default, refusing.
 	WebNonLoopbackAck string
+	// WebNoAuthAck, when it matches web.RequiredNoAuthAck exactly,
+	// disables the web UI's token/cookie/bearer check — a narrow,
+	// explicit escape hatch for a user running behind their own auth
+	// layer (e.g. Cloudflare Access), NOT a new default. Empty by
+	// default, refusing (auth stays on). See ADR discussion in
+	// L25-projects-sessions.md.
+	WebNoAuthAck string
+	// KairosUser is $KAIROS_USER — the CLI's identity for attribution
+	// only (internal/identity), never authorization. Defaults to the OS
+	// username if unset (identity.FromEnv).
+	KairosUser string
 }
 
 // Load resolves $KAIROS_HOME (env override, then $XDG_STATE_HOME, then
@@ -202,6 +213,8 @@ func Load() (Config, error) {
 		InboxEnabled:            inboxEnabled,
 		WebAddr:                 webAddr,
 		WebNonLoopbackAck:       v.GetString("WEB_NON_LOOPBACK_ACK"),
+		WebNoAuthAck:            v.GetString("WEB_NO_AUTH_ACK"),
+		KairosUser:              v.GetString("USER"),
 	}, nil
 }
 

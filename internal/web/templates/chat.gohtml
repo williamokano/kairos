@@ -2,6 +2,21 @@
 <h1>chat</h1>
 <p class="empty">Describe a task in plain text — it starts a real run, same as any other trigger.</p>
 
+{{if not .RunID}}
+<p class="empty">
+  Optionally pick a <a href="/sessions">session</a> for real continuity (native LLM session
+  resume, and a real working directory if it's bound to a Project) — or just send a message for a
+  one-off ad hoc run.
+</p>
+<form method="get" action="/chat">
+  <select name="session">
+    <option value="">(no session — one-off ad hoc run)</option>
+    {{range .Sessions}}<option value="{{.ID}}" {{if eq .ID $.SessionID}}selected{{end}}>{{id .ID}} — {{.Actor}}{{if .ProjectID}} ({{.ProjectID}}){{end}}</option>{{end}}
+  </select>
+  <button type="submit">use session</button>
+</form>
+{{end}}
+
 {{if .RunID}}
 <section class="events" hx-ext="sse" sse-connect="/frag/run/conversation:{{.RunID}}/events">
   <div id="chat-messages" sse-swap="message" hx-get="/frag/chat/{{.RunID}}/messages" hx-trigger="sse:message" hx-target="this">
@@ -13,6 +28,7 @@
 <form hx-post="/chat" hx-target="#chat-error" hx-swap="innerHTML">
   <input type="hidden" name="nonce" value="{{.FormNonce}}">
   <input type="hidden" name="continueRunId" value="{{.RunID}}">
+  <input type="hidden" name="sessionId" value="{{.SessionID}}">
   <input name="text" placeholder="what should it do?…" required autofocus>
   <button type="submit">send ⏎</button>
 </form>

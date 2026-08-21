@@ -23,6 +23,7 @@ import (
 	"github.com/williamokano/kairos/internal/eventstore"
 	"github.com/williamokano/kairos/internal/executor/local"
 	"github.com/williamokano/kairos/internal/policy"
+	"github.com/williamokano/kairos/internal/project"
 	"github.com/williamokano/kairos/internal/tasksource"
 	"github.com/williamokano/kairos/internal/web"
 )
@@ -94,9 +95,10 @@ func serve(parentCtx context.Context) error {
 		return fmt.Errorf("loading policy: %w", err)
 	}
 
+	exec := local.New(local.DefaultBootIDProvider())
 	eng := engine.New(engine.Config{
 		Store:         store,
-		Executor:      local.New(local.DefaultBootIDProvider()),
+		Executor:      exec,
 		BootID:        local.DefaultBootIDProvider(),
 		WorkRoot:      filepath.Join(cfg.Home, "work"),
 		WorkspaceRepo: cfg.WorkspaceRepo,
@@ -158,6 +160,7 @@ func serve(parentCtx context.Context) error {
 		DailyUSD:       cfg.DailyUSD,
 		Home:           cfg.Home,
 		DefaultDoActor: cfg.DefaultDoActor,
+		Projects:       project.New(store, exec),
 	}
 
 	ln, err := api.Listen(sockPath)
@@ -220,6 +223,9 @@ func serve(parentCtx context.Context) error {
 		SockPath:     sockPath,
 		Token:        webToken,
 		AllowedHosts: []string{cfg.WebAddr, "localhost:" + webPort, webHost + ":" + webPort},
+		// NoAuth requires the exact acknowledgement string — auth stays
+		// on by default; see web.RequiredNoAuthAck's doc comment.
+		NoAuth: cfg.WebNoAuthAck == web.RequiredNoAuthAck,
 	})}
 	webErrCh := make(chan error, 1)
 	go func() { webErrCh <- webSrv.Serve(webLn) }()

@@ -1,0 +1,3 @@
+{{define "frag/projectrow"}}
+<tr id="project-{{.ID}}"><td>{{id .ID}}</td><td>{{.Name}}</td><td>{{.RepoPath}}</td><td>{{if .GitBacked}}yes{{else}}no{{end}}</td></tr>
+{{end}}

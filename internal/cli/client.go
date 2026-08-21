@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/williamokano/kairos/internal/identity"
 )
 
 // Client is the daemon API client — an ordinary net/http.Client dialing a
@@ -21,6 +23,11 @@ import (
 type Client struct {
 	http *http.Client
 	base string
+	// User is this CLI invocation's identity (internal/identity) — sent
+	// as the X-Kairos-User header on every request, attribution only,
+	// never authentication. Empty means no header, unchanged from before
+	// identity existed.
+	User string
 }
 
 // NewClient builds a Client dialing sockPath for every request. base is
@@ -65,6 +72,9 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 	req, err := http.NewRequestWithContext(ctx, method, c.base+path, reader)
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
+	}
+	if c.User != "" {
+		req.Header.Set(identity.HeaderName, c.User)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -141,12 +151,72 @@ type DoResponse struct {
 // native --resume of the prior turn's session (see internal/api/do.go's
 // handler doc comment for the full mechanics).
 func (c *Client) Do(ctx context.Context, text, continueRunID string) (DoResponse, error) {
+	return c.DoWithSession(ctx, text, continueRunID, "")
+}
+
+// DoWithSession is Do plus sessionID — a stable, resumable chat identity
+// (internal/project.Session) that, when non-empty, takes priority over
+// continueRunID (see doRequest's doc comment in internal/api/do.go).
+func (c *Client) DoWithSession(ctx context.Context, text, continueRunID, sessionID string) (DoResponse, error) {
 	var out DoResponse
 	err := c.do(ctx, http.MethodPost, "/do", map[string]any{
 		"text":          text,
 		"continueRunId": continueRunID,
+		"sessionId":     sessionID,
 	}, &out)
 	return out, err
+}
+
+// Project mirrors internal/api's projectResponse.
+type Project struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	RepoPath  string `json:"repoPath"`
+	GitBacked bool   `json:"gitBacked"`
+	CreatedBy string `json:"createdBy,omitempty"`
+	CreatedAt string `json:"createdAt"`
+}
+
+func (c *Client) CreateProject(ctx context.Context, name, repoPath string) (Project, error) {
+	var out Project
+	err := c.do(ctx, http.MethodPost, "/projects", map[string]any{"name": name, "repoPath": repoPath}, &out)
+	return out, err
+}
+
+func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
+	var out struct {
+		Projects []Project `json:"projects"`
+	}
+	err := c.do(ctx, http.MethodGet, "/projects", nil, &out)
+	return out.Projects, err
+}
+
+// Session mirrors internal/api's sessionResponse.
+type Session struct {
+	ID              string `json:"id"`
+	ProjectID       string `json:"projectId,omitempty"`
+	Actor           string `json:"actor"`
+	WorkDir         string `json:"workDir"`
+	Branch          string `json:"branch,omitempty"`
+	NativeSessionID string `json:"nativeSessionId,omitempty"`
+	LastRunID       string `json:"lastRunId,omitempty"`
+	RunCount        int    `json:"runCount"`
+	CreatedBy       string `json:"createdBy,omitempty"`
+	LastUsedAt      string `json:"lastUsedAt"`
+}
+
+func (c *Client) StartSession(ctx context.Context, projectName, actor string) (Session, error) {
+	var out Session
+	err := c.do(ctx, http.MethodPost, "/sessions", map[string]any{"projectName": projectName, "actor": actor}, &out)
+	return out, err
+}
+
+func (c *Client) ListSessions(ctx context.Context) ([]Session, error) {
+	var out struct {
+		Sessions []Session `json:"sessions"`
+	}
+	err := c.do(ctx, http.MethodGet, "/sessions", nil, &out)
+	return out.Sessions, err
 }
 
 // RunSummary mirrors internal/eventstore.RunSummary's JSON shape.

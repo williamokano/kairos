@@ -52,6 +52,11 @@ reachable off-host.
 | `kairos doctor` | host preflight: what the daemon can/can't run (`git`, `gh` on `PATH`, etc.) |
 | `kairos db verify` | replay every event stream and diff it against the persisted projections |
 | `kairos db reindex` | force every projection to rebuild from the log |
+| `kairos project create <name> --path <dir>` | register a Project — a named binding to a real directory, auto-detected as git-backed or not |
+| `kairos project ls` | list Projects |
+| `kairos session start [--project <name>] [--actor claude]` | start a stable, resumable chat Session — a git-backed Project gets a real `git worktree` (its own branch, real isolation) |
+| `kairos session ls` | list Sessions (actor, project, run count, last used, who started it) |
+| `kairos do <text> [--session <id>] [--continue <runID>]` | start (or continue) an ad hoc task from free text — see §8 |
 | `kairos check-output` | (used by actors, not you) validates `$KAIROS_OUTPUT` against `$KAIROS_SCHEMA` |
 
 Every command accepts `-o json` for machine-readable output instead of the default table/text
@@ -260,7 +265,50 @@ plans work, a second `claude` node with `workspace: write` implements it behind 
 node opens the PR. Don't run it against a real repo without reading it first — it opens a real
 pull request.
 
-## 8. Killing the daemon mid-run (what makes this durable)
+## 8. Projects, Sessions, and `kairos do` — a real chat with real continuity
+
+`kairos do <text>` starts an ad hoc task from plain prose — no workflow file needed. On its own,
+each call is a one-off run. For a real, ongoing chat with a stable identity (and, optionally, its
+own real git working directory), use a Project and a Session:
+
+```sh
+kairos project create demo --path /path/to/a/real/git/repo
+# prj_01M...   demo   /path/to/a/real/git/repo   git
+
+kairos session start --project demo --actor claude
+# ses_01M...   claude   /path/to/a/real/git/repo-sessions/ses_01M...
+```
+
+That second path is a **real `git worktree`** — its own branch (`kairos/session/<id>`), created
+off your actual repo, not a disposable clone (this is a deliberate departure from every other
+workspace in Kairos, which uses `--reference` clones instead — see
+`adr/0014-worktrees-for-interactive-sessions.md` for exactly why sessions are the one exception).
+Confirm it yourself from the original repo:
+
+```sh
+cd /path/to/a/real/git/repo && git worktree list
+# /path/to/a/real/git/repo                    ...  [master]
+# /path/to/a/real/git/repo-sessions/ses_01M...  ... [kairos/session/ses_01M...]
+```
+
+Now send turns to that session — each one runs a real LLM invocation in the session's own
+worktree, and each later turn genuinely resumes the same native LLM session (real `--resume`, not
+just a shared conversation thread):
+
+```sh
+kairos do "say hi" --session ses_01M...
+kairos session ls
+# ID          ACTOR   PROJECT     RUNS  LAST USED             BY
+# ses_01M...  claude  prj_01M...  1     2026-08-21T21:02:27Z  william
+```
+
+`BY william` there is real attribution (`$KAIROS_USER`, or your OS username if unset) — purely a
+label, never a login; anyone can still see and act on any session or project.
+
+A project-less `kairos session start` (no `--project`) still works — it just gets a private
+scratch directory instead of a worktree, same as a plain `kairos do` call.
+
+## 9. Killing the daemon mid-run (what makes this durable)
 
 This is the property the whole design exists to prove, so it's worth seeing once:
 
@@ -280,7 +328,7 @@ kairos db verify         # still clean
 `cmd/kairos/kill_mid_run_test.go`'s `TestEngine_survivesKillMidRun` is the automated version of
 exactly this scenario, asserted event-by-event rather than eyeballed.
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 - **`daemon not reachable`**: the auto-start didn't reach readiness in time (5s). Run `kairos
   status` again, or check `$KAIROS_HOME/daemon.lock` for a stale PID from a crashed daemon that
@@ -293,3 +341,9 @@ exactly this scenario, asserted event-by-event rather than eyeballed.
   `stderr.log` for what actually happened.
 - **`kairos db verify` reports a mismatch**: this should never happen; it's the strongest
   correctness signal the system has. If you hit it, please treat it as a real bug report.
+- **Running the web UI behind your own tunnel/auth (e.g. Cloudflare Access)** and don't want
+  Kairos's own token exchange in the way: set `KAIROS_WEB_NO_AUTH_ACK=yes-i-have-my-own-auth-in-front`
+  when starting `kairos serve`. Auth stays on by default — this is a narrow, explicit opt-out, and
+  the Host-allowlist/Origin checks (DNS-rebinding and cross-site-mutation defenses) still apply
+  regardless. Don't set this unless something else really is authenticating requests before they
+  reach Kairos.
