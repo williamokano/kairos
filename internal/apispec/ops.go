@@ -62,5 +62,6 @@ var Ops = []Op{
 	{Method: "POST", Path: "/sessions", CLIVerb: "session start", WebPath: "POST /sessions"},
 	{Method: "GET", Path: "/sessions", CLIVerb: "session ls", WebPath: "GET /sessions"},
 	{Method: "GET", Path: "/sessions/{id}", CLIVerb: "session show", WebPath: "GET /sessions/{id}"},
+	{Method: "DELETE", Path: "/sessions/{id}", CLIVerb: "session end", WebPath: "DELETE /sessions/{id}"},
 	{Method: "GET", Path: "/fs/browse", CLIVerb: "fs browse", WebPath: "GET /frag/fs/browse"},
 }

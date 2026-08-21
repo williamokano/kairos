@@ -88,5 +88,37 @@ func newSessionCmd(app *appCtx) *cobra.Command {
 		},
 	})
 
+	var endReason, endConfirm string
+	end := &cobra.Command{
+		Use:   "end <id>",
+		Short: "end a Session — removes its real git worktree, discarding any uncommitted work in it",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if endReason == "" {
+				return &usageError{msg: "--reason is required"}
+			}
+			if endConfirm != args[0] {
+				return &usageError{msg: "--confirm must exactly match the session id — nothing was done"}
+			}
+			client, err := ensureClient(cmd, app)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := withTimeout(cmd)
+			defer cancel()
+			if err := client.EndSession(ctx, args[0], endReason, endConfirm); err != nil {
+				return err
+			}
+			if app.output == "json" {
+				return printJSON(cmd.OutOrStdout(), map[string]string{"status": "ended"})
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), "ended")
+			return err
+		},
+	}
+	end.Flags().StringVar(&endReason, "reason", "", "why this session is being ended (required)")
+	end.Flags().StringVar(&endConfirm, "confirm", "", "the session id, typed out again (required — no --yes/--force shortcut)")
+	root.AddCommand(end)
+
 	return root
 }

@@ -54,6 +54,20 @@ func (m *Manager) CreateProject(ctx context.Context, name, repoPath, createdBy s
 	if !info.IsDir() {
 		return eventstore.Project{}, fmt.Errorf("project: %s is not a directory", abs)
 	}
+	// Two Projects aliasing the same RepoPath would collide on the same
+	// worktree-sibling naming scheme (provisionWorktree derives every
+	// session's worktree from RepoPath+"-sessions") and confuse which
+	// Project's sessions actually live where — reject loudly, naming the
+	// conflict, rather than silently allowing it (AGENTS.md rule 1).
+	existing, err := m.store.ListProjects(ctx)
+	if err != nil {
+		return eventstore.Project{}, fmt.Errorf("project: checking for a path conflict: %w", err)
+	}
+	for _, p := range existing {
+		if p.RepoPath == abs {
+			return eventstore.Project{}, fmt.Errorf("project: path %s is already bound to project %q (%s)", abs, p.Name, p.ID)
+		}
+	}
 	gitBacked := isGitBacked(abs)
 
 	p := eventstore.Project{
@@ -140,10 +154,14 @@ func (m *Manager) RecordTurn(ctx context.Context, sessionID, nativeSessionID, ru
 	return m.store.TouchSession(ctx, sessionID, nativeSessionID, runID)
 }
 
-// EndSession removes a git-backed session's worktree (if any) and
-// deletes its branch — real cleanup, not just a DB row deletion. Safe to
-// call on a non-git-backed or ad hoc session (a no-op past the DB
-// delete, since there's no worktree to remove).
+// EndSession removes a git-backed session's worktree (if any), deletes
+// its branch, and removes the Session's own row — real, complete
+// cleanup, not just a DB row deletion, and not a worktree left behind
+// with no record. Safe to call on a non-git-backed or ad hoc session (no
+// worktree to remove, the row deletion still happens). Idempotent: a
+// missing id is a no-op, not an error, matching this project's existing
+// posture for "already gone" (e.g. Store.DeleteSession's own doc
+// comment).
 func (m *Manager) EndSession(ctx context.Context, id string) error {
 	sess, ok, err := m.store.GetSession(ctx, id)
 	if err != nil {
@@ -160,7 +178,7 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 			}
 		}
 	}
-	return nil
+	return m.store.DeleteSession(ctx, id)
 }
 
 // provisionWorktree runs `git worktree add <dir> -b <branch>` off

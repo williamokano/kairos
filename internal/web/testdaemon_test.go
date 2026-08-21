@@ -20,36 +20,39 @@ import (
 // established pattern) exercise the real thing; these tests exercise
 // internal/web's own logic — auth, rendering, route shape — in isolation.
 type fakeDaemon struct {
-	runs          []cli.RunSummary
-	runState      cli.RunState
-	events        []cli.Envelope
-	messages      []cli.ConversationMessage
-	approveCalls  []approveCall
-	approveErr    error
-	humanTasks    []cli.OpenHumanTask
-	diffResult    cli.DiffResult
-	diffErr       error
-	compareResult cli.CompareResult
-	compareErr    error
-	sources       []cli.Source
-	costResp      cli.CostResponse
-	cancelCalls   []cancelCall
-	cancelErr     error
-	forkCalls     []forkCall
-	forkErr       error
-	forkResult    cli.ForkResult
-	pauseCalls    []string
-	pauseErr      error
-	createRunErr  error
-	doCalls       []doCall
-	doErr         error
-	doResult      cli.DoResponse
-	sessions      map[string]cli.Session
-	sessionsErr   error
-	projects      []cli.Project
+	runs            []cli.RunSummary
+	runState        cli.RunState
+	events          []cli.Envelope
+	messages        []cli.ConversationMessage
+	approveCalls    []approveCall
+	approveErr      error
+	humanTasks      []cli.OpenHumanTask
+	diffResult      cli.DiffResult
+	diffErr         error
+	compareResult   cli.CompareResult
+	compareErr      error
+	sources         []cli.Source
+	costResp        cli.CostResponse
+	cancelCalls     []cancelCall
+	cancelErr       error
+	forkCalls       []forkCall
+	forkErr         error
+	forkResult      cli.ForkResult
+	pauseCalls      []string
+	pauseErr        error
+	createRunErr    error
+	doCalls         []doCall
+	doErr           error
+	doResult        cli.DoResponse
+	sessions        map[string]cli.Session
+	sessionsErr     error
+	projects        []cli.Project
+	endSessionCalls []endSessionCall
+	endSessionErr   error
 }
 
 type doCall struct{ Text, ContinueRunID, SessionID string }
+type endSessionCall struct{ ID, Reason, Confirm string }
 
 type cancelCall struct{ RunID, Reason string }
 type forkCall struct {
@@ -130,6 +133,23 @@ func newFakeDaemon(t *testing.T) (*fakeDaemon, string) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(s)
+	})
+	mux.HandleFunc("DELETE /sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Reason, Confirm string }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		fd.endSessionCalls = append(fd.endSessionCalls, endSessionCall{r.PathValue("id"), req.Reason, req.Confirm})
+		if req.Confirm != r.PathValue("id") {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "validation_failed", "message": "confirm must match"}})
+			return
+		}
+		if fd.endSessionErr != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "invariant_violation", "message": fd.endSessionErr.Error()}})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ended"})
 	})
 	mux.HandleFunc("GET /sessions", func(w http.ResponseWriter, r *http.Request) {
 		out := make([]cli.Session, 0, len(fd.sessions))

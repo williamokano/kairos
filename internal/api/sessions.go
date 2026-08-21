@@ -143,4 +143,37 @@ func registerSessionRoutes(mux *http.ServeMux, deps Deps) {
 		}
 		writeJSON(w, http.StatusOK, toSessionResponse(sess))
 	})
+
+	// DELETE /sessions/{id} backs `kairos session end` and the web
+	// chat page's end-session dialog — real, destructive cleanup
+	// (internal/project.Manager.EndSession removes the session's real
+	// git worktree, discarding any uncommitted work in it, per ADR
+	// 0014's own accepted residual risk). Requires BOTH a non-empty
+	// reason AND confirm == id, uniformly for every caller — the same
+	// server-side-decides discipline handleCancelRun/handleForkRun
+	// already established (client-side gating is a UX aid only), applied
+	// here rather than trusting the CLI's own already-typed id argument
+	// to be confirmation enough on its own.
+	mux.HandleFunc("DELETE /sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if deps.Projects == nil {
+			writeError(w, http.StatusServiceUnavailable, "invariant_violation", "session support not wired into this daemon")
+			return
+		}
+		id := r.PathValue("id")
+		var req struct{ Reason, Confirm string }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.Reason == "" {
+			writeError(w, http.StatusBadRequest, "usage", "reason is required")
+			return
+		}
+		if req.Confirm != id {
+			writeError(w, http.StatusUnprocessableEntity, "validation_failed", "confirm must exactly match the session id — nothing was done")
+			return
+		}
+		if err := deps.Projects.EndSession(r.Context(), id); err != nil {
+			writeError(w, http.StatusInternalServerError, "invariant_violation", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ended"})
+	})
 }

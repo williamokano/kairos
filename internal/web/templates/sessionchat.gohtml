@@ -9,6 +9,24 @@
   <code>{{.Session.WorkDir}}</code>
 </p>
 
+<section class="danger-zone">
+  <button type="button" data-open-dialog="end-session-dialog">⏹ end session</button>
+  <dialog id="end-session-dialog" class="confirm-dialog">
+    <form hx-delete="/sessions/{{.Session.ID}}" hx-target="#mutation-result" hx-swap="innerHTML" data-confirm-target="{{.Session.ID}}">
+      <h2>End {{id .Session.ID}}?</h2>
+      <p>Removes this session's real git worktree — any uncommitted work in it is discarded.
+      This cannot be undone.</p>
+      <label>reason <input type="text" name="reason" required></label>
+      <label>type <code>{{.Session.ID}}</code> to confirm
+        <input type="text" name="confirm" pattern="{{.Session.ID}}" autocomplete="off" required>
+      </label>
+      <button type="submit" data-confirm-submit disabled>end this session</button>
+      <button type="button" data-close-dialog>never mind</button>
+    </form>
+  </dialog>
+  <div id="mutation-result"></div>
+</section>
+
 {{if .Session.ConversationRunID}}
 <section class="events" hx-ext="sse" sse-connect="/frag/run/conversation:{{.Session.ConversationRunID}}/events">
   <div id="chat-messages" sse-swap="message" hx-get="/frag/session/{{.Session.ID}}/messages" hx-trigger="sse:message" hx-target="this">

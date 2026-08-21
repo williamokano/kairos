@@ -200,6 +200,11 @@ type Store interface {
 	// ConversationRunID is set to lastRunID ONLY the first time (run_count
 	// was 0) and left untouched on every later turn.
 	TouchSession(ctx context.Context, id, nativeSessionID, lastRunID string) error
+	// DeleteSession removes a Session's own row — `kairos session end`'s
+	// last step, after its worktree (if any) is already reclaimed. A
+	// no-op (not an error) if the id doesn't exist, matching
+	// EndSession's own idempotent framing.
+	DeleteSession(ctx context.Context, id string) error
 
 	Close() error
 }

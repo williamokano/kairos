@@ -174,6 +174,13 @@ func scanSession(r rowScanner) (Session, error) {
 	return sess, nil
 }
 
+func (s *store) DeleteSession(ctx context.Context, id string) error {
+	if _, err := s.writerDB.ExecContext(ctx, `DELETE FROM session WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("deleting session %s: %w", id, err)
+	}
+	return nil
+}
+
 func (s *store) TouchSession(ctx context.Context, id, nativeSessionID, lastRunID string) error {
 	// conversation_run_id is set only when it's still NULL (run_count's
 	// first bump) — COALESCE keeps every later turn's own value

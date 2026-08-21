@@ -199,3 +199,58 @@ func TestSourcesPage_pauseDialogOnlyForEnabledSources(t *testing.T) {
 		t.Error("did not expect a pause dialog for an already-paused source")
 	}
 }
+
+// TestEndSessionDialog_bypassWithoutMatchingConfirmIsRejected mirrors
+// TestCancelDialog_bypassWithoutMatchingConfirmIsRejected exactly for
+// `kairos session end`'s web dialog — a session's real git worktree
+// (with any uncommitted work in it) must never be discarded by a request
+// that skips the typed-confirm field.
+func TestEndSessionDialog_bypassWithoutMatchingConfirmIsRejected(t *testing.T) {
+	fd, sockPath := newFakeDaemon(t)
+	deps := testDeps(t, fd, sockPath)
+	h := web.NewMux(deps)
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"no confirm field at all", "reason=cleaning+up"},
+		{"confirm field present but wrong", "reason=cleaning+up&confirm=not-the-session-id"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fd.endSessionCalls = nil
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, authedRequest(http.MethodDelete, "/sessions/ses_1", deps.Token, tc.body))
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Errorf("status = %d, want 422 (bypass must be rejected)", rec.Code)
+			}
+			for _, c := range fd.endSessionCalls {
+				if c.Confirm == c.ID {
+					t.Errorf("a bypass attempt must never reach the daemon with a matching confirm: %+v", c)
+				}
+			}
+		})
+	}
+}
+
+// TestEndSessionDialog_matchingConfirmReachesTheDaemon proves the
+// positive path: the exact typed confirm reaches deps.Client.EndSession
+// with the right id and reason.
+func TestEndSessionDialog_matchingConfirmReachesTheDaemon(t *testing.T) {
+	fd, sockPath := newFakeDaemon(t)
+	deps := testDeps(t, fd, sockPath)
+	h := web.NewMux(deps)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodDelete, "/sessions/ses_1", deps.Token, "reason=done+with+this+chat&confirm=ses_1"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if len(fd.endSessionCalls) != 1 {
+		t.Fatalf("expected exactly one EndSession call, got %d", len(fd.endSessionCalls))
+	}
+	if fd.endSessionCalls[0].ID != "ses_1" || fd.endSessionCalls[0].Reason != "done with this chat" {
+		t.Errorf("unexpected end-session call: %+v", fd.endSessionCalls[0])
+	}
+}

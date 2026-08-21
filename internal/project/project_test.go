@@ -90,6 +90,31 @@ func TestCreateProject_detectsGitBackedVsPlain(t *testing.T) {
 	}
 }
 
+// TestCreateProject_rejectsADuplicateRepoPath closes L25-projects-sessions.md's
+// named gap: two Projects aliasing the same RepoPath would collide on
+// the same worktree-sibling naming scheme (provisionWorktree derives
+// every session's worktree from RepoPath+"-sessions"), so a second
+// project at an already-bound path must fail loudly, naming the
+// conflicting project, rather than silently succeeding.
+func TestCreateProject_rejectsADuplicateRepoPath(t *testing.T) {
+	m := newManager(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	first, err := m.CreateProject(ctx, "first", dir, "alice")
+	if err != nil {
+		t.Fatalf("CreateProject (first): %v", err)
+	}
+
+	_, err = m.CreateProject(ctx, "second", dir, "bob")
+	if err == nil {
+		t.Fatal("expected an error creating a second project at an already-bound path")
+	}
+	if !strings.Contains(err.Error(), first.Name) || !strings.Contains(err.Error(), first.ID) {
+		t.Errorf("error %q does not name the conflicting project (%s / %s)", err.Error(), first.Name, first.ID)
+	}
+}
+
 func TestCreateProject_persistsAcrossRestart(t *testing.T) {
 	registry, err := events.Builtin()
 	if err != nil {

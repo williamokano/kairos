@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"html"
+	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +37,53 @@ func registerMutations(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("POST /sources/{id}/pause", handlePauseSource(deps))
 	mux.HandleFunc("POST /projects", handleCreateProject(deps))
 	mux.HandleFunc("POST /sessions", handleCreateSession(deps))
+	mux.HandleFunc("DELETE /sessions/{id}", handleEndSession(deps))
+}
+
+// handleEndSession is the web dialog for `kairos session end` — real,
+// destructive cleanup (discards the session's git worktree). Same
+// requireTypedConfirm discipline as handleCancelRun/handleForkRun: the
+// dialog's own client-side pattern= attribute is a UX aid only, this
+// check is what actually decides.
+func handleEndSession(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		// net/http's ParseForm only reads the request body into PostForm
+		// for POST/PUT/PATCH — for DELETE (this route's real method) it
+		// silently leaves PostForm empty and the body untouched, which
+		// made requireTypedConfirm's r.PostForm.Get("confirm") always see
+		// "" regardless of what the dialog actually sent (caught by
+		// TestEndSessionDialog_matchingConfirmReachesTheDaemon). Read and
+		// parse the body explicitly instead of relying on ParseForm's
+		// method-gated behavior.
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "reading body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		form, err := url.ParseQuery(string(body))
+		if err != nil {
+			http.Error(w, "bad form: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		r.PostForm = form
+		if !requireTypedConfirm(w, r, id) {
+			return
+		}
+		if r.PostForm.Get("reason") == "" {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`<p class="error">reason is required</p>`))
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+		defer cancel()
+		if err := deps.Client.EndSession(ctx, id, r.PostForm.Get("reason"), id); err != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`<p class="error">` + html.EscapeString(err.Error()) + `</p>`))
+			return
+		}
+		_, _ = w.Write([]byte(`<div class="mutation-done">ended — <a href="/sessions">back to sessions</a></div>`))
+	}
 }
 
 func handleCreateRun(deps Deps) http.HandlerFunc {

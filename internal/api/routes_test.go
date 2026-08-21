@@ -85,6 +85,7 @@ func (nopStore) GetSession(context.Context, string) (eventstore.Session, bool, e
 	return eventstore.Session{}, false, nil
 }
 func (nopStore) TouchSession(context.Context, string, string, string) error { return nil }
+func (nopStore) DeleteSession(context.Context, string) error                { return nil }
 
 // TestAPI_everyOpIsRegistered asserts every apispec.Op is actually
 // reachable on the mux NewMux builds — the "routes are registered" half

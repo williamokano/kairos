@@ -233,6 +233,15 @@ func (c *Client) GetSession(ctx context.Context, id string) (Session, error) {
 	return out, err
 }
 
+// EndSession backs `kairos session end` and the web chat page's end
+// dialog — real, destructive cleanup (discards the session's git
+// worktree, per ADR 0014's accepted residual risk). confirm must equal
+// id exactly, checked server-side regardless of caller — the same
+// discipline Cancel/Fork already established.
+func (c *Client) EndSession(ctx context.Context, id, reason, confirm string) error {
+	return c.do(ctx, http.MethodDelete, "/sessions/"+id, map[string]any{"reason": reason, "confirm": confirm}, nil)
+}
+
 // FSEntry mirrors internal/api's fsEntry — one immediate subdirectory of
 // a browsed path.
 type FSEntry struct {

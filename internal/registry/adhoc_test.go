@@ -1,8 +1,10 @@
 package registry_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/williamokano/kairos/internal/registry"
 )
@@ -71,5 +73,55 @@ func TestSynthesizeAdHoc_continuationCarriesResumeAndConversationTarget(t *testi
 func TestSynthesizeAdHoc_requiresAnActor(t *testing.T) {
 	if _, err := registry.SynthesizeAdHoc(t.TempDir(), "hi", registry.AdHocOptions{}); err == nil {
 		t.Fatal("expected an error with no Actor set")
+	}
+}
+
+// TestGC_removesOnlyInactiveAndOldFiles mirrors internal/workspace.GC's
+// own test style (L06): a mix of terminal-and-old (removed),
+// terminal-and-recent (kept — the retention window's whole point, so a
+// just-finished chat turn stays forkable), and active/referenced (kept
+// regardless of age) files, and confirms only the correct set goes.
+func TestGC_removesOnlyInactiveAndOldFiles(t *testing.T) {
+	home := t.TempDir()
+	adhocDir := filepath.Join(home, "adhoc")
+	if err := os.MkdirAll(adhocDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	oldInactive := filepath.Join(adhocDir, "old-inactive.yaml")
+	recentInactive := filepath.Join(adhocDir, "recent-inactive.yaml")
+	oldActive := filepath.Join(adhocDir, "old-active.yaml")
+	for _, p := range []string{oldInactive, recentInactive, oldActive} {
+		if err := os.WriteFile(p, []byte("name: x\nnodes: []\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	now := time.Now().UTC()
+	old := now.Add(-8 * 24 * time.Hour)
+	if err := os.Chtimes(oldInactive, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(oldActive, old, old); err != nil {
+		t.Fatal(err)
+	}
+	// recentInactive keeps its just-written mtime (~now).
+
+	active := map[string]bool{oldActive: true}
+	removed, err := registry.GC(home, active, 7*24*time.Hour, now)
+	if err != nil {
+		t.Fatalf("GC: %v", err)
+	}
+
+	if len(removed) != 1 || removed[0] != oldInactive {
+		t.Errorf("removed = %v, want exactly [%s]", removed, oldInactive)
+	}
+	for _, p := range []string{recentInactive, oldActive} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("expected %s to survive GC, got: %v", p, err)
+		}
+	}
+	if _, err := os.Stat(oldInactive); err == nil {
+		t.Errorf("expected %s to be removed by GC", oldInactive)
 	}
 }

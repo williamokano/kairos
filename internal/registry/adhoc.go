@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/oklog/ulid/v2"
 	"sigs.k8s.io/yaml"
@@ -99,4 +100,50 @@ func SynthesizeAdHoc(homeDir, text string, opts AdHocOptions) (path string, err 
 		return "", fmt.Errorf("registry: writing ad hoc definition: %w", err)
 	}
 	return outPath, nil
+}
+
+// GC removes adhoc definition files under homeDir/adhoc that are BOTH not
+// referenced by activeDefRefs (mirroring internal/workspace.GC's
+// activeRunIDs pattern exactly — a keep-set the caller derives from
+// non-terminal runs' own DefinitionRef, not a name this function invents
+// itself) AND older than retention. The age check is the second,
+// independent safety net raw activity-checking alone doesn't give: a
+// TERMINAL run's adhoc file must stay forkable (L18) for some real window
+// after it finishes, not just for as long as it happened to still be
+// running — deleting it the instant a run succeeds would be correct by
+// "not referenced by an active run" alone but would break forking minutes
+// later. Never wired to a timer (no persisted timer wheel exists yet,
+// matching L05-engine.md's decision #6 / internal/workspace.GC's own
+// precedent) — a caller invokes this explicitly.
+func GC(homeDir string, activeDefRefs map[string]bool, retention time.Duration, now time.Time) ([]string, error) {
+	dir := filepath.Join(homeDir, "adhoc")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("registry: reading adhoc dir: %w", err)
+	}
+	var removed []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		full := filepath.Join(dir, e.Name())
+		if activeDefRefs[full] {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			return removed, fmt.Errorf("registry: stat-ing %s: %w", full, err)
+		}
+		if now.Sub(info.ModTime()) < retention {
+			continue
+		}
+		if err := os.Remove(full); err != nil {
+			return removed, fmt.Errorf("registry: removing %s: %w", full, err)
+		}
+		removed = append(removed, full)
+	}
+	return removed, nil
 }

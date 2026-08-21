@@ -119,14 +119,13 @@ show `createdBy` attribution from the real OS username.
 
 ## Future work
 
-- `kairos session end` isn't yet a CLI verb (the engine method `EndSession` is real and tested;
-  only the CLI/API surface to call it manually is unbuilt) — a session's worktree is currently only
-  cleaned up if something calls `Manager.EndSession` directly.
-- No automatic session/worktree garbage collection — an abandoned session's worktree persists on
-  disk indefinitely until manually ended.
-- `kairos project create` doesn't yet detect or refuse a path that's already bound to another
-  Project (two Projects could point at the same `RepoPath` today).
 - The chat page's session picker is a plain `<select>` requiring a full page navigation to switch
   sessions — no live AJAX switching.
-- No web UI page for `kairos session end` / a "confirm you understand this discards uncommitted
-  work" dialog — matches the CLI gap above.
+
+### Closed since this document was first written
+
+The three gaps this section used to name are now built (see `L27-session-lifecycle.md`):
+`kairos session end` (CLI + web dialog + `internal/project.Manager.EndSession` finally reachable,
+not just an internal method nothing called), manual adhoc-definition GC (`registry.GC`, wired into
+`kairos doctor --self-check`), and `kairos project create` rejecting a path already bound to
+another Project.
