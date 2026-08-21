@@ -36,4 +36,43 @@ the same scenario reaches `RunFailed` with exactly one `ExecFailed` execution re
 Verification: `go build`/`go vet`/`gofmt -l .`/`golangci-lint run` clean, full `-race` suite green
 (including a fresh, non-cached `cmd/kairos` run), `make cross` (4 platforms), `make arch` clean.
 
+Committed as `05776a7`.
+
+## 2. Daily-spend-window reset: a real day boundary, persisted across restarts (L07)
+
+`admission.Manager.dailySpent` was a bare in-memory `float64` — reset to zero on every daemon
+restart, and never reset on a genuine day rollover if the daemon stayed up across midnight.
+Strictly more permissive than `02-config.md`'s real 24-hour `dailyUSD` window.
+
+Added `admission.Config.Clock` (default `time.Now`, injectable for tests) and `OnSpendChange`
+(called synchronously whenever the running total changes — a grant or a rollover reset), plus
+`Manager.Today()`/`Manager.Seed(day, spentUSD)`. `TryAdmit` now checks the day key on every call
+and resets to zero on a genuine rollover (local calendar date — `02-config.md` frames `dailyUSD`
+as "your card," a single-user tool, not a fleet spanning timezones).
+
+Persistence is a new `admission_spend` table (migration `0004_admission_spend.sql`, one row per
+day) reached through `eventstore.Store`'s `GetAdmissionSpend`/`SetAdmissionSpend` — the same
+shape as L16's `source_cursor` (a `source_cursor` reuse was considered and rejected: its
+`source_id` column has a foreign key to the `source` table, which doesn't apply here and would
+have been a forced fit). `internal/admission` itself still performs no I/O — `Engine.New` wires
+`OnSpendChange` to a closure over `e.store`, and `Reconcile` seeds the Manager from the
+persisted row for today before the live loop starts, mirroring the existing boot-sequence
+pattern (reconcile-before-serve).
+
+Tests: `internal/admission/day_boundary_test.go` proves both halves in isolation (same-day
+restart resumes the persisted total; a genuine day rollover resets to zero, confirmed via
+`OnSpendChange` and `Today()`) using a fixed injectable clock, no real sleeping across midnight.
+`internal/engine/daily_spend_test.go` is the integration proof against a real SQLite store: a
+node with `resources.model.maxCostUSD` runs through the real admission path, persists its spend,
+and a second `Engine` over the same store — the shape of an actual restart — correctly denies a
+run that would otherwise fit the cap, proving the restored total is genuinely enforced, not
+silently reset.
+
+Found one pre-existing, unrelated flaky test while running the full suite:
+`TestEngine_spawnOnChildFailureDegradeStillSucceeds` failed once under full-suite `-race` load
+("domain: illegal state transition" folding `node.wait.resolved`) but passed cleanly in
+isolation and on 5 repeated full-package runs; this document's changes touch neither
+`spawn.go` nor join/degrade logic, so it's flagged here as a known, apparently load-sensitive
+pre-existing flake rather than chased down — out of this item's scope per AGENTS §7.
+
 Committed as `<pending>`.

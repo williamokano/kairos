@@ -8,6 +8,7 @@ package admission
 import (
 	"fmt"
 	"sync"
+	"time"
 )
 
 // Outcome is the result of one admission decision.
@@ -100,11 +101,28 @@ type Config struct {
 	DailyUSD float64
 	// MaxQueued is admission.maxQueued — rule 7's reject threshold.
 	MaxQueued int
+
+	// Clock returns the current time, used only to compute rule 5's day
+	// key (local time — 02-config.md frames dailyUSD as "your card", a
+	// single-user tool with no timezone to reconcile across). Defaults to
+	// time.Now if nil; tests inject a fixed/steppable clock instead of
+	// sleeping across a real midnight.
+	Clock func() time.Time
+	// OnSpendChange, if set, is called synchronously after every change to
+	// the running day total — both an admitted request's increment and a
+	// day rollover's reset to zero — so a caller can persist it (see
+	// internal/eventstore's GetAdmissionSpend/SetAdmissionSpend). Manager
+	// itself performs no I/O; this is the seam that makes the reset
+	// durable without admission importing a store.
+	OnSpendChange func(day string, spentUSD float64)
 }
 
 // Manager holds every pool's live state. Safe for concurrent use.
 type Manager struct {
 	mu sync.Mutex
+
+	clock         func() time.Time
+	onSpendChange func(day string, spentUSD float64)
 
 	draining bool
 
@@ -115,6 +133,7 @@ type Manager struct {
 	workspaceKey map[string]bool // key -> held
 
 	dailyUSD   float64
+	day        string // "2026-08-21" — the day dailySpent is counted against
 	dailySpent float64
 
 	maxQueued int
@@ -124,16 +143,52 @@ type Manager struct {
 // that rule's capacity check entirely (unlimited) — 02-config.md's
 // defaults are resolved by the caller (cmd/kairos/serve.go), not here, so
 // a zero-value Config is a deliberate "no limit" rather than "always
-// deny".
+// deny". Call Seed after New, before the first TryAdmit, to restore a
+// persisted running total from a prior boot on the same day.
 func New(cfg Config) *Manager {
-	return &Manager{
-		nodeSlots:    cfg.NodeSlots,
-		modelSlots:   cfg.ModelSlots,
-		modelHeld:    make(map[string]int),
-		workspaceKey: make(map[string]bool),
-		dailyUSD:     cfg.DailyUSD,
-		maxQueued:    cfg.MaxQueued,
+	clock := cfg.Clock
+	if clock == nil {
+		clock = time.Now
 	}
+	m := &Manager{
+		nodeSlots:     cfg.NodeSlots,
+		modelSlots:    cfg.ModelSlots,
+		modelHeld:     make(map[string]int),
+		workspaceKey:  make(map[string]bool),
+		dailyUSD:      cfg.DailyUSD,
+		maxQueued:     cfg.MaxQueued,
+		clock:         clock,
+		onSpendChange: cfg.OnSpendChange,
+	}
+	m.day = dayKey(clock())
+	return m
+}
+
+// dayKey is rule 5's day boundary: the local calendar date, formatted so
+// it sorts and compares as a plain string.
+func dayKey(t time.Time) string {
+	return t.Local().Format("2006-01-02")
+}
+
+// Today reports the day key Manager is currently counting spend against —
+// what a caller must pass to Seed for it to take effect.
+func (m *Manager) Today() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.day
+}
+
+// Seed restores a persisted running total for day — a no-op if day is not
+// today (a restart that crosses midnight correctly starts today at zero,
+// the same as a fresh boot; there is no "yesterday's leftover budget" to
+// carry forward). Call once at construction, before the first TryAdmit.
+func (m *Manager) Seed(day string, spentUSD float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if day != m.day {
+		return
+	}
+	m.dailySpent = spentUSD
 }
 
 // SetDraining flips rule 1: once draining, every TryAdmit is Denied
@@ -153,6 +208,8 @@ func (m *Manager) SetDraining(draining bool) {
 func (m *Manager) TryAdmit(req Request) Decision {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	m.rolloverDayIfNeeded()
 
 	// Rule 1: draining.
 	if m.draining {
@@ -201,8 +258,31 @@ func (m *Manager) TryAdmit(req Request) Decision {
 	if req.EstimatedCostUSD > 0 {
 		m.dailySpent += req.EstimatedCostUSD
 		claims.held = append(claims.held, claimID{pool: "budget", key: fmt.Sprintf("%f", req.EstimatedCostUSD)})
+		m.notifySpendChange()
 	}
 	return Decision{Outcome: Granted, Claims: claims}
+}
+
+// rolloverDayIfNeeded resets dailySpent to zero the first time TryAdmit
+// observes a new calendar day — the fix for the counter being
+// process-lifetime-only: without Seed restoring today's total at boot,
+// AND without this check, a daemon that stays up across midnight would
+// never reset at all, permanently denying once yesterday's estimate
+// crossed dailyUSD.
+func (m *Manager) rolloverDayIfNeeded() {
+	today := dayKey(m.clock())
+	if today == m.day {
+		return
+	}
+	m.day = today
+	m.dailySpent = 0
+	m.notifySpendChange()
+}
+
+func (m *Manager) notifySpendChange() {
+	if m.onSpendChange != nil {
+		m.onSpendChange(m.day, m.dailySpent)
+	}
 }
 
 // queueOrDeny implements rule 7: past maxQueued, a busy pool produces a

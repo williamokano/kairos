@@ -144,6 +144,17 @@ type Store interface {
 	// (possibly slow) run-creation call, or two concurrent pollers both
 	// pass an empty-run_id race.
 	RecordTriggerRun(ctx context.Context, dedupeKey, runID string) error
+
+	// GetAdmissionSpend reads day's persisted running total (rule 5's
+	// dailyUSD cap) — ok is false for a day with no recorded spend yet.
+	// See internal/admission's Future-work note: without this, a restart
+	// mid-day silently reset the cap's counter to zero.
+	GetAdmissionSpend(ctx context.Context, day string) (spentUSD float64, ok bool, err error)
+	// SetAdmissionSpend upserts day's running total. The caller owns day's
+	// format ("2026-08-21", local time) and the arithmetic; this is a
+	// plain durable KV write, one row per day.
+	SetAdmissionSpend(ctx context.Context, day string, spentUSD float64) error
+
 	Close() error
 }
 

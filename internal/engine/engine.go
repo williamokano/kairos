@@ -245,7 +245,6 @@ func New(cfg Config) *Engine {
 		killGrace:     cfg.KillGrace,
 		numShards:     cfg.NumShards,
 		log:           cfg.Logger,
-		admit:         admission.New(cfg.Admission),
 		claims:        make(map[string]admission.Claims),
 		timers:        make(map[string]*time.Timer),
 
@@ -257,6 +256,21 @@ func New(cfg Config) *Engine {
 		effectCeilings: cfg.UnattendedEffectCeilings,
 		spawner:        cfg.Spawner,
 	}
+	// The Admission Manager is constructed after e exists so its
+	// OnSpendChange hook can close over e.store — persisting rule 5's
+	// running total durably is this document's fix for the counter being
+	// process-lifetime-only (see internal/eventstore's GetAdmissionSpend/
+	// SetAdmissionSpend). A persist failure is logged, not fatal: the
+	// in-memory counter (source of truth for THIS process's lifetime) is
+	// unaffected either way, and Reconcile already logs if seeding from a
+	// prior boot's total fails.
+	admCfg := cfg.Admission
+	admCfg.OnSpendChange = func(day string, spentUSD float64) {
+		if err := e.store.SetAdmissionSpend(context.Background(), day, spentUSD); err != nil {
+			e.log.Warn("persisting admission daily spend", "day", day, "error", err)
+		}
+	}
+	e.admit = admission.New(admCfg)
 	e.effectProviders = cfg.EffectProviders
 	if e.effectProviders == nil {
 		e.effectProviders = map[string]effect.Provider{

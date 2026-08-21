@@ -49,6 +49,18 @@ func (e *Engine) Reconcile(ctx context.Context) (ReconcileReport, error) {
 		return ReconcileReport{}, fmt.Errorf("recording engine.started: %w", err)
 	}
 
+	// Restore rule 5's running spend total from the prior boot, if this is
+	// still the same calendar day — the fix for the counter being
+	// process-lifetime-only (see admission.Manager's Seed doc comment). A
+	// missing/unreadable row is not fatal: it just means today's total
+	// starts at zero, same as a fresh install.
+	today := e.admit.Today()
+	if spent, ok, err := e.store.GetAdmissionSpend(ctx, today); err != nil {
+		e.log.Warn("reading admission daily spend", "day", today, "error", err)
+	} else if ok {
+		e.admit.Seed(today, spent)
+	}
+
 	runs, err := e.store.ListRuns(ctx, nil)
 	if err != nil {
 		return ReconcileReport{}, fmt.Errorf("listing runs: %w", err)
