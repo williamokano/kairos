@@ -233,4 +233,8 @@ func isLoopback(host string) bool {
 // never a CDN reference, so the CSP's default-src 'self' holds.
 func registerStatic(mux *http.ServeMux) {
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS()))))
+	// chroma.css is generated from the pinned chroma style (diffrender.go)
+	// rather than hand-vendored, so it can never name a class the running
+	// binary's chroma version doesn't actually emit.
+	mux.HandleFunc("GET /static/chroma.css", handleChromaCSS)
 }

@@ -701,6 +701,34 @@ node's own recorded failure reason.
 *Revisit:* once per-actor-identity provisioning (04-agents.md's `~/.kairos/agents/<kind>/<identity>`)
 is built, or once a gemini/opencode config-dir env var is confirmed to exist.
 
+**NL-51 · The diff viewer's side-by-side view pairs removed/added lines by position, not content.**
+`buildSideRows` (`internal/web/diffparse.go`) zips a hunk's consecutive run of removed lines against
+its following run of added lines position-by-position — the same heuristic most lightweight
+split-diff viewers use, not a full LCS realignment. A change that reorders several lines within one
+hunk (rather than editing them in place) pairs a removal against an unrelated addition on the same
+row.
+*Blast radius:* cosmetic, confined to the side-by-side view — the unified view and the underlying
+patch/numstat data (what actually changed) are unaffected; a reviewer relying only on the row-pairing
+to judge "this line became that line" can be misled for a reordered block.
+*Mitigations:* the unified mode (`?mode=unified`) shows the same hunk without any pairing
+inference — **shipped**, and is one click away via the mode toggle.
+*Detection:* none automated; visible on inspection of a reordered-lines diff in split mode.
+*Revisit:* if a real diff ever needs it, an LCS-based aligner is a self-contained addition to
+`buildSideRows` alone — no other file in the diff pipeline would change.
+
+**NL-52 · The diff viewer's syntax highlighting is one fixed dark theme, not adaptive.**
+`diffrender.go` renders every line through one pinned chroma style (`github-dark`), chosen to match
+app.css's own dark-first default palette. Unlike the rest of the page (`:root` tokens swapped under
+`prefers-color-scheme: light` / `data-theme`), the highlighted code itself does not repaint for a
+viewer using light mode.
+*Blast radius:* cosmetic only — a light-mode viewer sees code highlighting against a background it
+was not tuned for; every diff still renders and is fully readable, just not colour-matched.
+*Mitigations:* none shipped.
+*Detection:* visible by toggling to light mode on any diff page.
+*Revisit:* `chromahtml.WithModeClasses` (chroma v2) can scope a second style's rules by a `light`/
+`dark` class and let CSS pick between them at render time — a self-contained change to
+`chromaStylesheet`/`highlightLine` alone.
+
 **NL-13 · The audit log is not tamper-proof.**
 The agent can write `~/.kairos/kairos.db` unless G6–G9 are enabled.
 *Mitigations:* `guardrails-untouched` covers `~/.kairos/**` in the diff gate (**shipped**), refusing to

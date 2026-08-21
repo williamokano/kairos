@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/williamokano/kairos/internal/cli"
@@ -20,6 +21,8 @@ func registerPages(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /t/{runID}/{nodeID}", handleDecisionPage(deps))
 	mux.HandleFunc("GET /c/{runID}", handleConversationPage(deps))
 	mux.HandleFunc("GET /doctor", handleDoctorPage(deps))
+	mux.HandleFunc("GET /runs/{id}/diff", handleDiffPage(deps))
+	mux.HandleFunc("GET /compare", handleComparePage(deps))
 }
 
 type waitingItem struct{ RunID, NodeID string }
@@ -162,6 +165,136 @@ func handleDoctorPage(deps Deps) http.HandlerFunc {
 			return
 		}
 		renderPage(w, "doctor", "doctor", resp)
+	}
+}
+
+// diffPageData is what diff.gohtml renders — the diff viewer
+// (L20-webui.md's Future work, built here): a node's before/after change
+// (?node=) or, with no node, the whole run's change against the project's
+// configured base ref.
+type diffPageData struct {
+	RunID, NodeID, Mode             string
+	FromRef, ToRef                  string
+	Files                           []diffFileView
+	TotalAdded, TotalRemoved        int
+	ScopeViolations, WorkspacePaths []string
+}
+
+// handleDiffPage implements GET /runs/{id}/diff. mode defaults to "split"
+// (side-by-side, matching 10-webui.md's own mockup) and "unified" is the
+// only other accepted value. A ?file=&line= deep link is resolved once
+// server-side into a same-page 302 whose Location carries a URL fragment
+// (#f{n}-p{n}) — a plain browser jumps to the matching id on load with no
+// client script at all, which this page's strict CSP (script-src 'self',
+// no inline) would block anyway.
+func handleDiffPage(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		runID := r.PathValue("id")
+		nodeID := r.URL.Query().Get("node")
+		mode := "split"
+		if r.URL.Query().Get("mode") == "unified" {
+			mode = "unified"
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+		defer cancel()
+		result, err := deps.Client.Diff(ctx, runID, nodeID)
+		if err != nil {
+			http.Error(w, "loading diff: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+
+		files := buildDiffFileViews(result.Files, result.Patch, result.ScopeViolations)
+
+		if wantFile := r.URL.Query().Get("file"); wantFile != "" {
+			if anchor, ok := findDeepLinkAnchor(files, wantFile, r.URL.Query().Get("line")); ok {
+				q := r.URL.Query()
+				q.Del("file")
+				q.Del("line")
+				target := r.URL.Path
+				if enc := q.Encode(); enc != "" {
+					target += "?" + enc
+				}
+				http.Redirect(w, r, target+"#"+anchor, http.StatusFound)
+				return
+			}
+		}
+
+		var added, removed int
+		for _, f := range files {
+			added += f.Added
+			removed += f.Removed
+		}
+
+		renderPage(w, runID, "diff", diffPageData{
+			RunID: runID, NodeID: nodeID, Mode: mode,
+			FromRef: result.FromRef, ToRef: result.ToRef,
+			Files: files, TotalAdded: added, TotalRemoved: removed,
+			ScopeViolations: result.ScopeViolations, WorkspacePaths: result.WorkspacePaths,
+		})
+	}
+}
+
+// findDeepLinkAnchor locates the line-level anchor id for a ?file=&line=
+// deep link: an empty/unparsed line jumps to the file's first hunk line;
+// otherwise it matches the new-file line number, falling back to the
+// old-file number for a pure deletion (which has no new-file line at
+// all).
+func findDeepLinkAnchor(files []diffFileView, path, lineStr string) (string, bool) {
+	line, _ := strconv.Atoi(lineStr)
+	for _, f := range files {
+		if f.Path != path {
+			continue
+		}
+		if line == 0 {
+			for _, h := range f.Hunks {
+				if len(h.Lines) > 0 {
+					return h.Lines[0].Anchor, true
+				}
+			}
+			return "", false
+		}
+		for _, h := range f.Hunks {
+			for _, l := range h.Lines {
+				if l.NewNo == line || (l.NewNo == 0 && l.OldNo == line) {
+					return l.Anchor, true
+				}
+			}
+		}
+		return "", false
+	}
+	return "", false
+}
+
+// handleComparePage implements /compare?a=&b= — 10-webui.md's two-run
+// side-by-side, rendering internal/cli.Client.Compare's existing call
+// (which itself calls L18's Engine.Compare) rather than recomputing
+// anything: cost/duration/attempts/findings plus a fork-drift annotation
+// when one side is a fork of the other. Cost is omitted, matching
+// internal/api/compare.go's own documented reason (never durably
+// metered, NL-30) — this page renders exactly what Compare returns, it
+// does not add a field Compare itself doesn't have.
+func handleComparePage(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		a, b := r.URL.Query().Get("a"), r.URL.Query().Get("b")
+		if a == "" || b == "" {
+			http.Error(w, "compare requires both ?a= and ?b= run ids", http.StatusBadRequest)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+		defer cancel()
+		result, err := deps.Client.Compare(ctx, a, b)
+		if err != nil {
+			http.Error(w, "comparing runs: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		renderPage(w, a+" vs "+b, "compare", struct {
+			A, B                 cli.CompareSide
+			ADuration, BDuration time.Duration
+		}{
+			A: result.A, B: result.B,
+			ADuration: time.Duration(result.A.Duration), BDuration: time.Duration(result.B.Duration),
+		})
 	}
 }
 

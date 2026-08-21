@@ -33,3 +33,22 @@ th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var
 .message { padding: 0.35rem 0; border-bottom: 1px solid var(--border); }
 .risk-accept { display: block; color: var(--risk); }
 code { background: rgba(110,118,129,0.2); padding: 0.1rem 0.3rem; border-radius: 4px; }
+
+/* diff viewer */
+.diff-summary { color: var(--muted); }
+.scope-banner { border-color: var(--risk); }
+.diff-file h2 { display: flex; gap: 0.5rem; align-items: baseline; font-size: 0.95rem; color: var(--fg); }
+.diff-stat { color: var(--muted); font-weight: normal; font-size: 0.8rem; }
+.diff-hunk { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; overflow-x: auto; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 0.5rem; }
+.diff-hunk-header { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; color: var(--muted); background: rgba(110,118,129,0.12); padding: 0.15rem 0.5rem; }
+.diff-line { display: flex; white-space: pre; padding: 0 0.25rem; }
+.diff-marker { width: 1.2ch; flex: none; color: var(--muted); }
+.diff-lineno { width: 4ch; flex: none; text-align: right; color: var(--muted); padding-right: 0.5rem; user-select: none; }
+.diff-content { flex: 1 1 auto; }
+.diff-add { background: rgba(63,185,80,0.15); }
+.diff-del { background: rgba(248,81,73,0.15); }
+table.diff-split { width: 100%; table-layout: fixed; border-collapse: collapse; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; overflow-x: auto; display: block; }
+table.diff-split td { border: none; padding: 0 0.4rem; white-space: pre; vertical-align: top; }
+table.diff-split td.diff-lineno { width: 4ch; text-align: right; color: var(--muted); user-select: none; }
+table.diff-split td.diff-content { width: 50%; }
+.compare-table td, .compare-table th { text-align: left; }

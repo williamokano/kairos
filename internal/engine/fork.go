@@ -244,8 +244,28 @@ func (e *Engine) Fork(ctx context.Context, req ForkRequest) (ForkResult, error) 
 		}
 	}
 
+	// Detached from ctx's cancellation (context.WithoutCancel), not ctx
+	// itself — a REAL bug this document's own end-to-end test found:
+	// dispatching a shell/LLM node here spawns a background goroutine
+	// that OUTLIVES this call (reapShell's e.wg-tracked watcher), and
+	// when Fork is reached through POST /runs/{id}/fork, ctx is the HTTP
+	// request's context, canceled the instant the handler returns —
+	// almost always before a real child process finishes. Every
+	// subsequent e.store.AppendIf that watcher then attempts (recording
+	// the node's real output) failed with context.Canceled, and reapShell
+	// only checks that error to decide whether to snapshot next — it
+	// never logs the error itself, so the node sat Executing forever with
+	// no recorded outcome at all, even though the process had genuinely
+	// already completed on disk. Every OTHER dispatch path avoids this
+	// because it either runs from the engine's own long-lived Start(ctx)
+	// loop (ordinary node dispatch) or deliberately does not dispatch
+	// synchronously at all (AnswerHumanTask's doc comment: relies on that
+	// same live loop). Fork is the one place that dispatches
+	// synchronously from a request handler, so it is the one place that
+	// needs to detach.
+	dispatchCtx := context.WithoutCancel(ctx)
 	for _, cmd := range lastCmds {
-		if err := e.dispatch(ctx, trigger.DefinitionRef, cmd); err != nil {
+		if err := e.dispatch(dispatchCtx, trigger.DefinitionRef, cmd); err != nil {
 			e.log.Error("fork: dispatching continuation cmd failed", "newRunID", newRunID, "err", err)
 		}
 	}

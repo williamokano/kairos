@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -370,6 +371,40 @@ func (c *Client) Compare(ctx context.Context, runA, runB string) (CompareResult,
 func (c *Client) Ping(ctx context.Context) bool {
 	_, err := c.Status(ctx)
 	return err == nil
+}
+
+// DiffFile mirrors internal/api's diffFileResponse: one changed file's
+// numstat summary.
+type DiffFile struct {
+	Path    string `json:"path"`
+	Added   int    `json:"added"`
+	Removed int    `json:"removed"`
+	Binary  bool   `json:"binary"`
+}
+
+// DiffResult mirrors internal/api's diffResponse.
+type DiffResult struct {
+	RunID           string     `json:"runId"`
+	NodeID          string     `json:"nodeId,omitempty"`
+	FromRef         string     `json:"fromRef"`
+	ToRef           string     `json:"toRef"`
+	Files           []DiffFile `json:"files"`
+	Patch           string     `json:"patch"`
+	WorkspacePaths  []string   `json:"workspacePaths,omitempty"`
+	ScopeViolations []string   `json:"scopeViolations,omitempty"`
+}
+
+// Diff fetches the file-level change a run (or, with nodeID set, one of
+// its nodes) produced — GET /runs/{id}/diff, backing both `kairos diff`
+// and the web diff viewer.
+func (c *Client) Diff(ctx context.Context, runID, nodeID string) (DiffResult, error) {
+	path := "/runs/" + runID + "/diff"
+	if nodeID != "" {
+		path += "?node=" + url.QueryEscape(nodeID)
+	}
+	var out DiffResult
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out, err
 }
 
 // Source mirrors internal/api's sourceResponse — backs `kairos src ls`.

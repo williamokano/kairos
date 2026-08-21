@@ -1,0 +1,56 @@
+{{define "diff"}}
+<h1>diff · {{.RunID}}{{if .NodeID}} / {{.NodeID}}{{end}}</h1>
+
+<p class="diff-summary">
+  <code>{{id .FromRef}}..{{id .ToRef}}</code>
+  &middot; {{len .Files}} files +{{.TotalAdded}} -{{.TotalRemoved}}
+  &middot; <a href="?{{if .NodeID}}node={{.NodeID}}&amp;{{end}}mode=split">side-by-side</a>
+  &middot; <a href="?{{if .NodeID}}node={{.NodeID}}&amp;{{end}}mode=unified">unified</a>
+</p>
+
+{{if .ScopeViolations}}
+<div class="pane scope-banner risk-flag">
+  ⚠ {{len .ScopeViolations}} file(s) outside declared scope {{.WorkspacePaths}}:
+  {{range .ScopeViolations}}<code>{{.}}</code> {{end}}
+</div>
+{{else if .WorkspacePaths}}
+<p>✓ no violations of declared scope {{.WorkspacePaths}}</p>
+{{end}}
+
+{{if eq (len .Files) 0}}
+<p class="empty">no changes recorded between {{.FromRef}} and {{.ToRef}}.</p>
+{{end}}
+
+{{$mode := .Mode}}
+{{range $fi, $f := .Files}}
+<section class="pane diff-file" id="f{{$f.Index}}">
+  <h2>{{if not $f.InScope}}⚠ {{end}}{{$f.Path}} <span class="diff-stat">+{{$f.Added}} -{{$f.Removed}}</span></h2>
+  {{if $f.Binary}}
+    <p class="empty">binary file, not shown</p>
+  {{else if eq $mode "unified"}}
+    {{range $f.Hunks}}
+    <div class="diff-hunk">
+      <div class="diff-hunk-header">{{.Header}}</div>
+      {{range .Lines}}<div id="{{.Anchor}}" class="diff-line diff-{{.Kind}}"><span class="diff-marker">{{if eq .Kind "add"}}+{{else if eq .Kind "del"}}-{{else}} {{end}}</span><span class="diff-lineno">{{if .OldNo}}{{.OldNo}}{{end}}</span><span class="diff-lineno">{{if .NewNo}}{{.NewNo}}{{end}}</span><span class="diff-content">{{.HTML}}</span></div>
+      {{end}}
+    </div>
+    {{end}}
+  {{else}}
+    {{range $hi, $h := $f.Hunks}}
+    <div class="diff-hunk-header">{{$h.Header}}</div>
+    <table class="diff-split">
+      {{$rows := index $f.SideRows $hi}}
+      {{range $rows}}
+      <tr id="{{if .NewAnchor}}{{.NewAnchor}}{{else}}{{.OldAnchor}}{{end}}">
+        <td class="diff-lineno diff-{{.OldKind}}">{{if .OldNo}}{{.OldNo}}{{end}}</td>
+        <td class="diff-content diff-{{.OldKind}}">{{.OldHTML}}</td>
+        <td class="diff-lineno diff-{{.NewKind}}">{{if .NewNo}}{{.NewNo}}{{end}}</td>
+        <td class="diff-content diff-{{.NewKind}}">{{.NewHTML}}</td>
+      </tr>
+      {{end}}
+    </table>
+    {{end}}
+  {{end}}
+</section>
+{{end}}
+{{end}}

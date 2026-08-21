@@ -1,0 +1,21 @@
+{{define "compare"}}
+<h1>compare</h1>
+<table class="compare-table">
+  <thead><tr><th></th><th>A</th><th>B</th></tr></thead>
+  <tbody>
+    <tr><td>run</td><td>{{id .A.RunID}}</td><td>{{id .B.RunID}}</td></tr>
+    <tr><td>status</td><td>{{.A.Status}}</td><td>{{.B.Status}}</td></tr>
+    <tr><td>duration</td><td>{{dur .ADuration}}</td><td>{{dur .BDuration}}</td></tr>
+    <tr><td>attempts</td><td>{{.A.Attempts}}</td><td>{{.B.Attempts}}</td></tr>
+    <tr><td>findings</td><td>{{.A.Findings}}</td><td>{{.B.Findings}}</td></tr>
+  </tbody>
+</table>
+
+{{if or .A.ForkedFrom .B.ForkedFrom}}
+<p>{{if .B.ForkedFrom}}B forked from A at run {{id .B.ForkedFrom}}{{else}}A forked from run {{id .A.ForkedFrom}}{{end}}</p>
+{{end}}
+{{if .A.Drifted}}<p class="risk-flag">⚠ A: {{.A.DriftDetail}}</p>{{end}}
+{{if .B.Drifted}}<p class="risk-flag">⚠ B: {{.B.DriftDetail}}</p>{{end}}
+
+<p><a href="/runs/{{.A.RunID}}/diff">A's diff →</a> &middot; <a href="/runs/{{.B.RunID}}/diff">B's diff →</a></p>
+{{end}}

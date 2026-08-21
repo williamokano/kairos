@@ -10,8 +10,10 @@ import (
 )
 
 // funcMap is 10-webui.md's render.go template funcs: dur, cost, id, sev,
-// relTime. diffline is Future work — see L20-webui.md — the diff viewer
-// itself is out of this pass's scope.
+// relTime. The diff viewer's own per-line rendering (highlightLine,
+// diffrender.go) runs ahead of template execution in Go, not through
+// this map — it returns pre-built template.HTML, not a string a template
+// func would format.
 var funcMap = template.FuncMap{
 	"dur": func(d time.Duration) string {
 		if d < time.Second {
