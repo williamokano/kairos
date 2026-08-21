@@ -185,6 +185,20 @@ func (e *Engine) Fork(ctx context.Context, req ForkRequest) (ForkResult, error) 
 			lastCmds = cmds
 		}
 	}
+	// A run forked at (or past) its own completion has nothing left to
+	// continue — lastCmds's "most recent non-empty cmds" heuristic exists
+	// to see past a trailing no-op bookkeeping event (see the doc comment
+	// above), but it cannot distinguish that case from "the run's real
+	// work finished and its terminal transition simply produced zero
+	// cmds": both leave lastCmds holding a real, but now STALE, cmd from
+	// earlier in the sequence (found via TestIntegration_forkAndCompareCLI:
+	// forking a fully succeeded run re-dispatched an already-folded
+	// CmdEvaluateGates against the new run's already-terminal exec,
+	// producing a real domain.ErrIllegalTransition — logged and dropped,
+	// not fatal, but never should have been attempted).
+	if state.Status.Terminal() {
+		lastCmds = nil
+	}
 
 	e.shardFor(newRunID).primeForked(ctx, newRunID, state, trigger.DefinitionRef, atSeq)
 

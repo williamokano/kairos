@@ -237,3 +237,58 @@ on repeat runs immediately after, unrelated to this item's changes (which touch 
 spawn/join code).
 
 Committed as `f8dbb8d`.
+
+## 7. A committed `cmd/kairos` end-to-end test for `kairos fork`/`kairos compare` (L18)
+
+`L18-fork-replay-verify.md`'s own Future work: "this document's own verification ran the
+equivalent by hand; committing it as a real test is straightforward follow-on work, not deferred
+for a design reason."
+
+`cmd/kairos/fork_compare_cli_test.go` runs a simple two-node `rule`/`shell` workflow with no
+`workspace: write` node (so `Engine.Fork`'s own `needsWorkspace` check skips the git-snapshot
+machinery entirely, keeping the test real without a git-remote fixture) to completion, forks it
+via the real `kairos fork --set greeting=forked-hello` against a real daemon, and confirms: the
+forked run's event log genuinely starts with the copied prefix tagged `run.forked` (the correct
+`FromRunID`), the `--set` override lands in the copied `trigger.received`'s own `Params` (proving
+overrides actually reach the new run — proving they change an actor's *runtime* behavior would
+need per-node input-binding this codebase doesn't have yet, NL-37, so this checks exactly what
+`Fork` itself guarantees), the forked run independently reaches `succeeded`, `kairos compare`
+reports both runs correctly including `B.ForkedFrom`, and `kairos db verify` stays clean
+throughout.
+
+**Real bug found and fixed**: the first run of this test logged `fork: dispatching continuation
+cmd failed ... domain: illegal state transition` — harmless in this case only because the
+erroneous dispatch simply failed and was dropped, but a real defect in `Engine.Fork`
+(`internal/engine/fork.go`). `lastCmds`'s "most recent non-empty cmds" heuristic (meant to see
+past a trailing no-op bookkeeping event at the copy boundary) cannot distinguish that case from
+"the run's real work already finished and its terminal transition simply produced zero cmds" —
+both leave `lastCmds` holding a real but now-**stale** cmd from earlier in the sequence. Forking a
+run at (or past) its own completion therefore re-dispatched an already-folded `CmdEvaluateGates`
+against the new run's already-terminal exec. Fixed at the root: after the local replay loop, if
+the resulting `RunState.Status.Terminal()`, `lastCmds` is cleared — a run forked at its own
+completion has nothing left to continue, full stop. Confirmed fixed by re-running the test after
+the change: the error log disappeared entirely (verified via `go clean -testcache` to rule out a
+stale cached pass), and the two pre-existing `internal/engine` fork tests
+(`TestEngine_forkCopiesReasoningExactlyAndRestoresWorkspaceApproximately`,
+`TestEngine_forkRefusesDriftByDefault`) still pass, confirming the mid-run continuation-dispatch
+path this fix does NOT touch is unaffected.
+
+Full-suite `-race` surfaced the same pre-existing, load-sensitive
+`TestEngine_spawnOnChildFailureDegradeStillSucceeds` flake noted in items 5 and 6 — confirmed
+passing on three repeat runs in isolation immediately after, unrelated to `fork.go`.
+
+Committed as `<pending>`.
+
+---
+
+All seven items from this hardening pass are complete: NL-31 (item 1), the daily-spend-window
+reset (item 2), `kairos effects`/`effects resolve` (item 3), `kairos waiver grant`/`effects
+confirm` plus the CAS-retry-budget fix (item 4), NL-49's `Idempotency-Key` dedupe (item 5), the
+real `GET /human-tasks` index (item 6), and the committed fork/compare end-to-end test plus its
+own real bug fix (item 7). Each item was independently read-first, implemented, tested, verified
+across the full suite (`go build`/`go vet`/`gofmt`/`golangci-lint`/`go test -race`/`make
+cross`/`make arch`), committed, and pushed — five genuine bugs found and fixed along the way (the
+illegal-transition trap at a fourth, previously-unnamed call site; the CAS-retry-budget race
+shared across every human-facing decision write; and the fork continuation-dispatch staleness
+bug), and two pre-existing, load-sensitive test flakes identified, confirmed unrelated, and left
+honestly noted rather than silently worked around.
