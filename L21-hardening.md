@@ -199,4 +199,4 @@ apparently load-sensitive flake in this package (the first was
 noted here rather than chased, since this item's changes touch none of the adopt/reconciliation
 code involved.
 
-Committed as `<pending>`.
+Committed as `c13c005`.
