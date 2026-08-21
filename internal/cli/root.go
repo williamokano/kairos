@@ -141,6 +141,7 @@ func newRootCmd(app *appCtx) *cobra.Command {
 	root.AddCommand(newCostCmd(app))
 	root.AddCommand(newProjectCmd(app))
 	root.AddCommand(newSessionCmd(app))
+	root.AddCommand(newFSCmd(app))
 	return root
 }
 

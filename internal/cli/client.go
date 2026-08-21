@@ -200,9 +200,14 @@ type Session struct {
 	Branch          string `json:"branch,omitempty"`
 	NativeSessionID string `json:"nativeSessionId,omitempty"`
 	LastRunID       string `json:"lastRunId,omitempty"`
-	RunCount        int    `json:"runCount"`
-	CreatedBy       string `json:"createdBy,omitempty"`
-	LastUsedAt      string `json:"lastUsedAt"`
+	// ConversationRunID is where this session's one continuous chat
+	// thread lives — set on its first turn, never overwritten. Lets a
+	// caller (the web UI's session-centric chat page) go straight to the
+	// real conversation without re-deriving it.
+	ConversationRunID string `json:"conversationRunId,omitempty"`
+	RunCount          int    `json:"runCount"`
+	CreatedBy         string `json:"createdBy,omitempty"`
+	LastUsedAt        string `json:"lastUsedAt"`
 }
 
 func (c *Client) StartSession(ctx context.Context, projectName, actor string) (Session, error) {
@@ -217,6 +222,46 @@ func (c *Client) ListSessions(ctx context.Context) ([]Session, error) {
 	}
 	err := c.do(ctx, http.MethodGet, "/sessions", nil, &out)
 	return out.Sessions, err
+}
+
+// GetSession fetches one Session's own record — used by `kairos session
+// show` and the web UI's session-centric chat page, which needs
+// ConversationRunID without scanning ListSessions' full result.
+func (c *Client) GetSession(ctx context.Context, id string) (Session, error) {
+	var out Session
+	err := c.do(ctx, http.MethodGet, "/sessions/"+id, nil, &out)
+	return out, err
+}
+
+// FSEntry mirrors internal/api's fsEntry — one immediate subdirectory of
+// a browsed path.
+type FSEntry struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	IsGit  bool   `json:"isGit"`
+	Hidden bool   `json:"hidden"`
+}
+
+// FSBrowseResponse mirrors internal/api's fsBrowseResponse.
+type FSBrowseResponse struct {
+	Path    string    `json:"path"`
+	Parent  string    `json:"parent,omitempty"`
+	Entries []FSEntry `json:"entries"`
+}
+
+// BrowseFS lists path's immediate real subdirectories (empty path means
+// the user's home directory) — `kairos fs browse` and the web UI's
+// project-path picker's one shared entry point, per the user's own ask
+// for "a rich selector... not always I remember the path from the top of
+// my head."
+func (c *Client) BrowseFS(ctx context.Context, path string) (FSBrowseResponse, error) {
+	var out FSBrowseResponse
+	q := ""
+	if path != "" {
+		q = "?path=" + url.QueryEscape(path)
+	}
+	err := c.do(ctx, http.MethodGet, "/fs/browse"+q, nil, &out)
+	return out, err
 }
 
 // RunSummary mirrors internal/eventstore.RunSummary's JSON shape.

@@ -97,6 +97,8 @@ func NewRawMux(deps Deps) *http.ServeMux {
 	registerFragments(mux, deps)
 	registerMutations(mux, deps)
 	registerChatRoutes(mux, deps)
+	registerSessionChatRoutes(mux, deps)
+	registerFSBrowseFragment(mux, deps)
 	registerStatic(mux)
 	return mux
 }

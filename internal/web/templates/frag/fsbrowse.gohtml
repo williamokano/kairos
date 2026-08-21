@@ -1,0 +1,26 @@
+{{define "frag/fsbrowse"}}
+{{if .FetchErr}}
+<p class="error">browsing: {{.FetchErr}}</p>
+{{else}}
+<div class="fs-browser">
+  <div class="fs-current">
+    <code>{{.Path}}</code>
+    <button type="button" onclick="document.querySelector('#project-path-input').value='{{.Path}}'; document.querySelector('#project-path-input').dispatchEvent(new Event('input'))">use this path</button>
+  </div>
+  <ul class="fs-entries" data-nav-list>
+    {{if .Parent}}
+    <li><button type="button" class="fs-entry-link" hx-get="/frag/fs/browse?path={{.Parent}}" hx-target="#fs-browser" hx-swap="innerHTML">.. (up)</button></li>
+    {{end}}
+    {{range .Entries}}
+    {{if not .Hidden}}
+    <li>
+      <button type="button" class="fs-entry-link" hx-get="/frag/fs/browse?path={{.Path}}" hx-target="#fs-browser" hx-swap="innerHTML">
+        {{.Name}}{{if .IsGit}} (git){{end}}
+      </button>
+    </li>
+    {{end}}
+    {{end}}
+  </ul>
+</div>
+{{end}}
+{{end}}

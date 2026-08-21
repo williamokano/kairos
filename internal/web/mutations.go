@@ -2,9 +2,12 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"html"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/williamokano/kairos/internal/cli"
 )
@@ -221,10 +224,69 @@ func handlePostMessage(deps Deps) http.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 		defer cancel()
+
+		// Found via live testing: this route is a dumb append with
+		// nothing to react to it — exactly right for a hand-authored
+		// workflow's real wait: conversation node (the engine's own live
+		// subscription notices the new message and resolves the wait),
+		// but silently inert for a `kairos do`-created run, which has no
+		// waiting node at all — "stores in the database but I don't see
+		// any output." Detect which case this is and, for a do-created
+		// run, route through the SAME continuation POST /do already uses
+		// instead of the dead-end append.
+		if sessionID, continueRunID, isDo, err := doOwnerOf(ctx, deps.Client, runID); err == nil && isDo {
+			if _, doErr := deps.Client.DoWithSession(ctx, text, continueRunID, sessionID); doErr != nil {
+				http.Error(w, "continuing chat: "+doErr.Error(), http.StatusBadGateway)
+				return
+			}
+			renderFragment(w, "frag/message", cli.ConversationMessage{Role: "you", Text: text})
+			return
+		}
+
 		if err := deps.Client.PostConversationMessage(ctx, runID, text); err != nil {
 			http.Error(w, "posting message: "+err.Error(), http.StatusBadGateway)
 			return
 		}
 		renderFragment(w, "frag/message", cli.ConversationMessage{Role: "you", Text: text})
 	}
+}
+
+// doOwnerOf reports whether runID was created by `kairos do` (its
+// trigger.received.TriggerRef is "do:..." — internal/api/do.go's own
+// literal prefix, verified live) and, if so, how to continue its chat:
+// sessionID is set when some internal/project.Session's ConversationRunID
+// equals runID (this run IS a session's one continuous thread — continue
+// by session, keeping WorkDir/native-session continuity), otherwise
+// continueRunID is runID itself (a plain, session-less ad hoc chat —
+// continuation by run, matching the existing /chat page's own fallback).
+func doOwnerOf(ctx context.Context, client *cli.Client, runID string) (sessionID, continueRunID string, isDo bool, err error) {
+	envs, err := client.Events(ctx, runID, 500*time.Millisecond)
+	if err != nil {
+		return "", "", false, err
+	}
+	found := false
+	for _, e := range envs {
+		if e.EventType != "trigger.received" {
+			continue
+		}
+		var payload struct{ TriggerRef string }
+		if jsonErr := json.Unmarshal(e.Event, &payload); jsonErr == nil && strings.HasPrefix(payload.TriggerRef, "do:") {
+			found = true
+		}
+		break // trigger.received is always a run's first event
+	}
+	if !found {
+		return "", "", false, nil
+	}
+
+	sessions, err := client.ListSessions(ctx)
+	if err != nil {
+		return "", runID, true, nil // a listing failure still lets the plain run-continuation path work
+	}
+	for _, s := range sessions {
+		if s.ConversationRunID == runID {
+			return s.ID, "", true, nil
+		}
+	}
+	return "", runID, true, nil
 }

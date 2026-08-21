@@ -44,9 +44,12 @@ type fakeDaemon struct {
 	doCalls       []doCall
 	doErr         error
 	doResult      cli.DoResponse
+	sessions      map[string]cli.Session
+	sessionsErr   error
+	projects      []cli.Project
 }
 
-type doCall struct{ Text, ContinueRunID string }
+type doCall struct{ Text, ContinueRunID, SessionID string }
 
 type cancelCall struct{ RunID, Reason string }
 type forkCall struct {
@@ -100,15 +103,43 @@ func newFakeDaemon(t *testing.T) (*fakeDaemon, string) {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("POST /do", func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ Text, ContinueRunID string }
+		var req struct {
+			Text          string
+			ContinueRunID string `json:"continueRunId"`
+			SessionID     string `json:"sessionId"`
+		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		fd.doCalls = append(fd.doCalls, doCall{req.Text, req.ContinueRunID})
+		fd.doCalls = append(fd.doCalls, doCall{req.Text, req.ContinueRunID, req.SessionID})
 		if fd.doErr != nil {
 			http.Error(w, fd.doErr.Error(), http.StatusBadGateway)
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(fd.doResult)
+	})
+	mux.HandleFunc("GET /sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := fd.sessions[r.PathValue("id")]
+		if fd.sessionsErr != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "invariant_violation", "message": fd.sessionsErr.Error()}})
+			return
+		}
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "not_found", "message": "no such session"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(s)
+	})
+	mux.HandleFunc("GET /sessions", func(w http.ResponseWriter, r *http.Request) {
+		out := make([]cli.Session, 0, len(fd.sessions))
+		for _, s := range fd.sessions {
+			out = append(out, s)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"sessions": out})
+	})
+	mux.HandleFunc("GET /projects", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"projects": fd.projects})
 	})
 	mux.HandleFunc("POST /runs/{id}/approve", func(w http.ResponseWriter, r *http.Request) {
 		var req struct{ NodeID, Decision, Reason, TypedWord string }

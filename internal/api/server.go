@@ -81,6 +81,7 @@ func NewMux(deps Deps) *http.ServeMux {
 	registerCostRoute(mux, deps)
 	registerProjectRoutes(mux, deps)
 	registerSessionRoutes(mux, deps)
+	registerFSRoutes(mux, deps)
 	return mux
 }
 

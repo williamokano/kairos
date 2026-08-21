@@ -65,5 +65,28 @@ func newSessionCmd(app *appCtx) *cobra.Command {
 		},
 	})
 
+	root.AddCommand(&cobra.Command{
+		Use:   "show <id>",
+		Short: "show one Session's own record (including its ConversationRunID)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := ensureClient(cmd, app)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := withTimeout(cmd)
+			defer cancel()
+			s, err := client.GetSession(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			if app.output == "json" {
+				return printJSON(cmd.OutOrStdout(), s)
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\n", s.ID, s.Actor, s.WorkDir, s.ConversationRunID)
+			return err
+		},
+	})
+
 	return root
 }

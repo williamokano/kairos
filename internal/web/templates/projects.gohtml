@@ -4,9 +4,14 @@
   <form hx-post="/projects" hx-target="#project-rows" hx-swap="afterbegin">
     <input type="hidden" name="nonce" value="{{.Nonce}}">
     <input name="name" placeholder="project name…" required>
-    <input name="path" placeholder="/real/path/on/this/machine" required>
+    <input id="project-path-input" name="path" placeholder="/real/path/on/this/machine" required>
     <button type="submit">create ⏎</button>
   </form>
+</section>
+
+<section class="fs-picker">
+  <p class="empty">Or browse for a path instead of typing one:</p>
+  <div id="fs-browser" hx-get="/frag/fs/browse" hx-trigger="load" hx-swap="innerHTML"></div>
 </section>
 
 {{if .FetchErr}}

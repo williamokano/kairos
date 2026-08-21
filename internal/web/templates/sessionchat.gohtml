@@ -1,0 +1,29 @@
+{{define "sessionchat"}}
+{{if .FetchErr}}
+<h1>session</h1>
+<p class="error">loading session: {{.FetchErr}}</p>
+{{else}}
+<h1>{{id .Session.ID}}</h1>
+<p class="empty">
+  {{.Session.Actor}}{{if .Session.ProjectID}} &middot; project {{.Session.ProjectID}}{{end}} &middot;
+  <code>{{.Session.WorkDir}}</code>
+</p>
+
+{{if .Session.ConversationRunID}}
+<section class="events" hx-ext="sse" sse-connect="/frag/run/conversation:{{.Session.ConversationRunID}}/events">
+  <div id="chat-messages" sse-swap="message" hx-get="/frag/session/{{.Session.ID}}/messages" hx-trigger="sse:message" hx-target="this">
+    {{template "frag/chatmessages" .Messages}}
+  </div>
+</section>
+{{else}}
+<div id="chat-messages"><p class="empty">No turns yet — send the first message below.</p></div>
+{{end}}
+
+<form hx-post="/sessions/{{.Session.ID}}/messages" hx-target="#chat-error" hx-swap="innerHTML">
+  <input type="hidden" name="nonce" value="{{.FormNonce}}">
+  <input name="text" placeholder="what should it do?…" required autofocus>
+  <button type="submit">send ⏎</button>
+</form>
+<div id="chat-error"></div>
+{{end}}
+{{end}}

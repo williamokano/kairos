@@ -28,16 +28,25 @@ type sessionResponse struct {
 	Branch          string `json:"branch,omitempty"`
 	NativeSessionID string `json:"nativeSessionId,omitempty"`
 	LastRunID       string `json:"lastRunId,omitempty"`
-	RunCount        int    `json:"runCount"`
-	CreatedBy       string `json:"createdBy,omitempty"`
-	LastUsedAt      string `json:"lastUsedAt"`
+	// ConversationRunID is where this session's ONE continuous chat
+	// thread actually lives (set on its first turn, never overwritten —
+	// see eventstore.Session's own doc comment). Exposed so a web/CLI
+	// client can go straight to a session's real conversation without
+	// re-deriving it — the previous omission of this field is exactly
+	// why the web UI's session picker and the plain Conversation page
+	// were two disconnected flows (see L26-session-chat.md's Documented
+	// decisions).
+	ConversationRunID string `json:"conversationRunId,omitempty"`
+	RunCount          int    `json:"runCount"`
+	CreatedBy         string `json:"createdBy,omitempty"`
+	LastUsedAt        string `json:"lastUsedAt"`
 }
 
 func toSessionResponse(s eventstore.Session) sessionResponse {
 	return sessionResponse{
 		ID: s.ID, ProjectID: s.ProjectID, Actor: s.Actor, WorkDir: s.WorkDir, Branch: s.Branch,
-		NativeSessionID: s.NativeSessionID, LastRunID: s.LastRunID, RunCount: s.RunCount,
-		CreatedBy: s.CreatedBy, LastUsedAt: s.LastUsedAt.Format(time.RFC3339),
+		NativeSessionID: s.NativeSessionID, LastRunID: s.LastRunID, ConversationRunID: s.ConversationRunID,
+		RunCount: s.RunCount, CreatedBy: s.CreatedBy, LastUsedAt: s.LastUsedAt.Format(time.RFC3339),
 	}
 }
 
@@ -112,5 +121,26 @@ func registerSessionRoutes(mux *http.ServeMux, deps Deps) {
 			out = append(out, toSessionResponse(s))
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
+	})
+
+	// GET /sessions/{id} backs `kairos session show <id>` and the web
+	// UI's session-centric chat page (/sessions/{id}) — a single
+	// session's own record, including ConversationRunID, without a
+	// caller having to scan the full list to find one.
+	mux.HandleFunc("GET /sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if deps.Projects == nil {
+			writeError(w, http.StatusServiceUnavailable, "invariant_violation", "session support not wired into this daemon")
+			return
+		}
+		sess, ok, err := deps.Projects.GetSession(r.Context(), r.PathValue("id"))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "invariant_violation", err.Error())
+			return
+		}
+		if !ok {
+			writeError(w, http.StatusNotFound, "not_found", "no such session: "+r.PathValue("id"))
+			return
+		}
+		writeJSON(w, http.StatusOK, toSessionResponse(sess))
 	})
 }
