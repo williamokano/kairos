@@ -116,3 +116,53 @@ the only fix needed was in the test file itself (an unused/broken helper from an
 removed before committing).
 
 Committed as `78f140d`.
+
+## 4. `kairos waiver grant` / `kairos effects confirm` CLI verbs (L11)
+
+`L11-policy-secrets.md`'s Future work named two callable-but-unreachable engine methods:
+`GrantWaiver` (already enforcing "deny-tier for every non-human principal" and a required
+reason, per `internal/engine/gates_waiver_test.go`'s existing tests) and
+`GrantEffectConfirmation` (already exercised end-to-end by `internal/engine/policy_test.go`) —
+both real, both fully tested at the engine level, neither reachable outside a direct Go call.
+
+Added routes `POST /runs/{id}/waivers` and `POST /runs/{id}/effects/confirm`
+(`internal/api/waiver.go`), `apispec.Op` entries, and CLI verbs `kairos waiver grant <run> --node
+--gate --reason --ttl` and `kairos effects confirm <run> --node --effect --scope`
+(`internal/cli/waiver.go`, a `confirm` subcommand added to `internal/cli/effects.go`) — deliberately
+no `--yes`/`--all`/`--forever`, matching `kairos approve`'s discipline: `--ttl` is required (an
+unexpiring waiver is exactly the permanent bypass a `waivable:false` gate exists to make
+impossible, so this command refuses to offer one even for a `waivable:true` gate).
+
+**Real bug found and fixed, the same class L14 already found once**: the first real end-to-end
+test (`kairos waiver grant` against a live daemon evaluating a real `command` gate) failed with
+`appending waiver.grant: exhausted retries on conflict` — `GrantWaiver` routed through
+`appendNext`'s plain 5-retry CAS loop, which is correct for writes a single shard goroutine
+already orders but provably too few for a write reachable from a **separate CLI process** racing
+a live, busy run — exactly the profile `internal/conversation.AppendMessage` was already bumped
+to 50 retries for (a real 20-way concurrent post burst, per L14). Fixed at the root: extracted
+`appendNextRetrying(ctx, runID, ev, maxRetries)` from `appendNext`, added
+`appendNextHumanFacing` (50 retries, mirroring conversation's exact reasoning), and routed every
+external human-decision write through it — not just `GrantWaiver`/`GrantEffectConfirmation`
+(this item's own scope), but also `AnswerHumanTask`'s and `AnswerEffectConfirmation`'s final
+appends (L13/L12, same race profile, same latent risk, fixed alongside since it's the identical
+bug rather than a different one) and item 3's own new `ResolveEffectUnknown`.
+
+A second, purely test-design issue surfaced alongside: the first real end-to-end attempt granted
+the waiver "immediately" after `kairos run` returned, matching the in-process engine test's own
+timing — but that test's zero-latency in-process `GrantWaiver` call has no equivalent race
+against a **separate OS process** (fork/exec/socket-connect overhead), and with
+`maxIterationsPerNode: 1` the gate is evaluated exactly once, so a grant arriving after that one
+evaluation is simply too late, structurally, not a bug. Fixed by giving the test node a `sleep 1`
+before writing its output — gate evaluation only runs after `NodeOutputReceived`, so the grant
+call has the whole sleep to land in.
+
+Tests: `cmd/kairos/waiver_confirm_cli_test.go` — a real end-to-end proof that `kairos waiver
+grant` against a live daemon unblocks a real, always-failing `command` gate (reusing
+`gates_waiver_test.go`'s exact fixture), run three times to confirm the race fix holds, plus
+table-driven CLI/daemon validation coverage for both verbs' required flags and value checks
+(`GrantEffectConfirmation`'s own underlying logic is already exhaustively tested at the engine
+level in `policy_test.go`, so a full local-git-remote round-trip for `effects confirm` was judged
+not worth the added fixture weight here — the plumbing is structurally identical to the
+already-round-trip-tested waiver-grant and `effects resolve` paths).
+
+Committed as `<pending>`.

@@ -48,6 +48,7 @@ func NewMux(deps Deps) *http.ServeMux {
 	registerConversationRoutes(mux, deps)
 	registerHumanRoutes(mux, deps)
 	registerEffectsRoutes(mux, deps)
+	registerWaiverRoutes(mux, deps)
 	registerForkRoutes(mux, deps)
 	registerCompareRoutes(mux, deps)
 	registerEventRoutes(mux, deps)

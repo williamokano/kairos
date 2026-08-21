@@ -120,6 +120,7 @@ func newRootCmd(app *appCtx) *cobra.Command {
 	root.AddCommand(newConversationCmd(app))
 	root.AddCommand(newApproveCmd(app))
 	root.AddCommand(newEffectsCmd(app))
+	root.AddCommand(newWaiverCmd(app))
 	root.AddCommand(newForkCmd(app))
 	root.AddCommand(newCompareCmd(app))
 	root.AddCommand(newDoctorCmd(app))

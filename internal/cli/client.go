@@ -287,6 +287,24 @@ func (c *Client) ResolveEffect(ctx context.Context, runID, nodeID, outcome, reas
 	}, nil)
 }
 
+// GrantWaiver posts a kairos-waiver-grant-shaped request. ttl is a Go
+// duration string (e.g. "24h") — required by the daemon side, an
+// unexpiring waiver being exactly the silent bypass this feature exists
+// to prevent as a default.
+func (c *Client) GrantWaiver(ctx context.Context, runID, nodeID, gateID, reason, ttl string) error {
+	return c.do(ctx, http.MethodPost, "/runs/"+runID+"/waivers", map[string]string{
+		"nodeId": nodeID, "gateId": gateID, "reason": reason, "ttl": ttl,
+	}, nil)
+}
+
+// ConfirmEffect posts a kairos-effects-confirm-shaped request. scope must
+// be "once" or "run" — required by the daemon side.
+func (c *Client) ConfirmEffect(ctx context.Context, runID, nodeID, effectName, scope string) error {
+	return c.do(ctx, http.MethodPost, "/runs/"+runID+"/effects/confirm", map[string]string{
+		"nodeId": nodeID, "effect": effectName, "scope": scope,
+	}, nil)
+}
+
 // ForkResult mirrors internal/api's forkResponse.
 type ForkResult struct {
 	NewRunID          string `json:"newRunId"`

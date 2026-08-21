@@ -41,7 +41,50 @@ func newEffectsCmd(app *appCtx) *cobra.Command {
 		},
 	}
 	root.AddCommand(newEffectsResolveCmd(app))
+	root.AddCommand(newEffectsConfirmCmd(app))
 	return root
+}
+
+// newEffectsConfirmCmd is the daemon's confirm-tier effect gate
+// (~/.kairos/policy.yaml) made answerable from the CLI —
+// engine.GrantEffectConfirmation already existed and enforced this
+// (L11-policy-secrets.md's own Future work named the missing CLI verb).
+func newEffectsConfirmCmd(app *appCtx) *cobra.Command {
+	var nodeID, effectName, scope string
+	cmd := &cobra.Command{
+		Use:   "confirm <runID>",
+		Short: "confirm a confirm-tier effect so a parked node may proceed",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if nodeID == "" {
+				return fmt.Errorf("--node is required")
+			}
+			if effectName == "" {
+				return fmt.Errorf("--effect is required")
+			}
+			if scope != "once" && scope != "run" {
+				return fmt.Errorf("--scope must be \"once\" or \"run\", got %q", scope)
+			}
+			client, err := ensureClient(cmd, app)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := withTimeout(cmd)
+			defer cancel()
+			if err := client.ConfirmEffect(ctx, args[0], nodeID, effectName, scope); err != nil {
+				return err
+			}
+			if app.output == "json" {
+				return printJSON(cmd.OutOrStdout(), map[string]string{"status": "confirmed"})
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), "confirmed")
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&nodeID, "node", "", "the actor: effect node id (required)")
+	cmd.Flags().StringVar(&effectName, "effect", "", "the effect name, e.g. gh.pr.create (required)")
+	cmd.Flags().StringVar(&scope, "scope", "", "once | run (required)")
+	return cmd
 }
 
 // newEffectsResolveCmd is deliberately as strict as `kairos approve`:

@@ -78,7 +78,7 @@ func (e *Engine) effectConfirmed(ctx context.Context, runID, nodeID, effect stri
 // this call is Future work (see L11-policy-secrets.md); this is the
 // callable core.
 func (e *Engine) GrantEffectConfirmation(ctx context.Context, runID, nodeID, effect, scope string) error {
-	return e.appendNext(ctx, runID, domain.EffectConfirmed{RunID: runID, NodeID: nodeID, Effect: effect, Scope: scope})
+	return e.appendNextHumanFacing(ctx, runID, domain.EffectConfirmed{RunID: runID, NodeID: nodeID, Effect: effect, Scope: scope})
 }
 
 // GrantWaiver is the one and only code path that can append
@@ -94,7 +94,7 @@ func (e *Engine) GrantWaiver(ctx context.Context, actor, runID, nodeID, gateID, 
 	if reason == "" {
 		return fmt.Errorf("engine: waiver.grant requires a reason")
 	}
-	return e.appendNext(ctx, runID, domain.WaiverGranted{
+	return e.appendNextHumanFacing(ctx, runID, domain.WaiverGranted{
 		RunID: runID, NodeID: nodeID, GateID: gateID, Reason: reason, ExpiresAt: expiresAt, GrantedBy: actor,
 	})
 }

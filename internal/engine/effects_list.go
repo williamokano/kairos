@@ -163,11 +163,15 @@ func (e *Engine) ResolveEffectUnknown(ctx context.Context, runID, nodeID, outcom
 		return fmt.Errorf("outcome must be \"applied\" or \"failed\", got %q", outcome)
 	}
 
-	if err := e.appendNext(ctx, runID, resultEv); err != nil {
+	// Human-facing retry budget (appendNextHumanFacing) — this is an
+	// operator's manual override reachable from a separate CLI process,
+	// the same profile that exhausted appendNext's plain 5-retry budget
+	// for GrantWaiver under real racing load.
+	if err := e.appendNextHumanFacing(ctx, runID, resultEv); err != nil {
 		return err
 	}
 	if e.isLive() {
-		return e.appendNext(ctx, runID, followupEv)
+		return e.appendNextHumanFacing(ctx, runID, followupEv)
 	}
 	return e.appendAndFoldBeforeStart(ctx, runID, followupEv)
 }

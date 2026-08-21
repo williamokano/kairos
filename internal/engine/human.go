@@ -117,8 +117,12 @@ func (e *Engine) AnswerHumanTask(ctx context.Context, runID, nodeID string, ans 
 	// avoids for wait: conversation; this had the identical bug until a
 	// full-suite -race run caught it (two concurrent callers folding the
 	// same HumanTaskAnswered independently, the second landing on a
-	// NodeExecution the first had already advanced past).
-	return e.appendNext(ctx, runID, ev)
+	// NodeExecution the first had already advanced past). Uses the
+	// higher human-facing retry budget — see appendNextHumanFacing's doc
+	// comment: this is reachable from a separate `kairos approve` process
+	// racing the live engine's own busy stream, exactly the profile that
+	// exhausted appendNext's plain 5-retry budget for GrantWaiver.
+	return e.appendNextHumanFacing(ctx, runID, ev)
 }
 
 // checkDecisionWeight enforces 05-gates.md's "decision weight must match

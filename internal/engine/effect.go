@@ -124,7 +124,7 @@ func (e *Engine) AnswerEffectConfirmation(ctx context.Context, runID, nodeID str
 		if nd, ok := e.resolveNode(e.mustDefinitionRef(ctx, runID), nodeID); ok && len(nd.Effects) > 0 {
 			effectName = nd.Effects[0]
 		}
-		if err := e.appendNext(ctx, runID, domain.EffectConfirmed{RunID: runID, NodeID: nodeID, Effect: effectName, Scope: "once"}); err != nil {
+		if err := e.appendNextHumanFacing(ctx, runID, domain.EffectConfirmed{RunID: runID, NodeID: nodeID, Effect: effectName, Scope: "once"}); err != nil {
 			return err
 		}
 	}
@@ -132,8 +132,9 @@ func (e *Engine) AnswerEffectConfirmation(ctx context.Context, runID, nodeID str
 	ev := domain.EffectConfirmationAnswered{RunID: runID, NodeID: nodeID, ExecID: exec.ExecID, Approved: approved, Reason: reason}
 	// Append only — the live shard picks this up, exactly like
 	// AnswerHumanTask (see that function's doc comment on the
-	// double-dispatch bug this avoids).
-	return e.appendNext(ctx, runID, ev)
+	// double-dispatch bug this avoids). Human-facing retry budget for the
+	// same reason AnswerHumanTask itself uses one.
+	return e.appendNextHumanFacing(ctx, runID, ev)
 }
 
 // mustDefinitionRef is firstEventDefinitionRef with errors swallowed to

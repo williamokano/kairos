@@ -176,7 +176,25 @@ func (e *Engine) dispatchEnterWait(ctx context.Context, c domain.CmdEnterWait) e
 // because dispatch actions (a reaper goroutine reporting a process exit,
 // say) run outside the shard's own single-goroutine ordering guarantee.
 func (e *Engine) appendNext(ctx context.Context, runID string, ev domain.Event) error {
-	const maxRetries = 5
+	return e.appendNextRetrying(ctx, runID, ev, 5)
+}
+
+// appendNextHumanFacing is appendNext with a much higher retry budget —
+// for a write reachable from a separate CLI process racing a live,
+// busy run's own shard (a human granting a waiver, confirming an
+// effect, or answering a parked task while the engine itself is mid-burst
+// appending several events for the same node), 5 retries is provably too
+// few: a real daemon under real subprocess-gate load exhausted it in
+// TestIntegration_waiverGrantCLIUnblocksAWaivableGateFailure. Mirrors
+// internal/conversation.AppendMessage's identical reasoning and identical
+// retry count (50) — appendNext's 5 is correct for writes a single shard
+// goroutine already orders (a rare cross-goroutine race), which none of
+// these are.
+func (e *Engine) appendNextHumanFacing(ctx context.Context, runID string, ev domain.Event) error {
+	return e.appendNextRetrying(ctx, runID, ev, 50)
+}
+
+func (e *Engine) appendNextRetrying(ctx context.Context, runID string, ev domain.Event, maxRetries int) error {
 	for i := 0; i < maxRetries; i++ {
 		envs, err := e.store.Read(ctx, runID)
 		if err != nil {
