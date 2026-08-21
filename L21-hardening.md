@@ -277,7 +277,7 @@ Full-suite `-race` surfaced the same pre-existing, load-sensitive
 `TestEngine_spawnOnChildFailureDegradeStillSucceeds` flake noted in items 5 and 6 — confirmed
 passing on three repeat runs in isolation immediately after, unrelated to `fork.go`.
 
-Committed as `<pending>`.
+Committed as `88458c7`.
 
 ---
 
