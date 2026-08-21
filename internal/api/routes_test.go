@@ -74,6 +74,17 @@ func (nopStore) ListOpenHumanTasks(context.Context) ([]eventstore.OpenHumanTask,
 // doesn't match falls through to Go's default "404 page not found" mux
 // response; anything else (including a domain-level 404 our own
 // writeError produces, which has a JSON body) proves the pattern matched.
+//
+// Every request carries its own short-lived context rather than
+// httptest.NewRequest's context.Background(): GET /events (handleEvents)
+// is a real SSE endpoint that blocks forever on its live-tail select loop
+// once history replay is exhausted, and nopStore's Subscribe channel is
+// never closed and never sent to — an unbounded context here hung this
+// test for a full 10-minute go-test-timeout panic the first time
+// apispec.Ops grew an /events entry (a real bug this test's own
+// assumptions had, not a fixture). A registered-but-streaming route still
+// proves itself registered the moment ctx.Done() unblocks it; this does
+// not weaken what the test asserts, only bounds how long proving it takes.
 func TestAPI_everyOpIsRegistered(t *testing.T) {
 	deps := api.Deps{Store: nopStore{}}
 	mux := api.NewMux(deps)
@@ -84,9 +95,11 @@ func TestAPI_everyOpIsRegistered(t *testing.T) {
 
 	for _, op := range apispec.Ops {
 		path := strings.ReplaceAll(op.Path, "{id}", "test-id")
-		req := httptest.NewRequest(op.Method, path, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		req := httptest.NewRequestWithContext(ctx, op.Method, path, nil)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
+		cancel()
 		if rec.Code == 404 && strings.Contains(rec.Body.String(), "404 page not found") {
 			t.Errorf("%s %s: not registered (default mux 404)", op.Method, op.Path)
 		}

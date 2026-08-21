@@ -111,8 +111,20 @@ kairos show 01H...
 #   finish    finish#a1.i1     succeeded   1        1
 ```
 
-Watch it live instead of polling `ls`/`show` by reading the daemon's SSE stream directly (there's
-no `kairos logs --follow` verb yet — that's named as deferred work):
+Watch it live instead of polling `ls`/`show`, via `kairos logs --follow` — a client of the same
+`GET /events` SSE stream, reconnecting and resuming on its own if the connection drops:
+
+```sh
+kairos logs 01H... --follow
+# 1  01H...  run.started            {...}
+# 2  01H...  node.execution.started {"NodeID":"start",...}
+# 3  01H...  node.output.received   {"NodeID":"start",...}
+# ...
+```
+
+Ctrl-C ends the tail cleanly. The bare, un-followed form (`kairos logs 01H...`) prints the same
+history and exits — useful for a quick look without staying attached. Reading the SSE stream
+directly still works too, and is exactly what `kairos logs` does under the hood:
 
 ```sh
 curl -s --unix-socket "$KAIROS_HOME/daemon.sock" \

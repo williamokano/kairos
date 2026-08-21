@@ -37,10 +37,6 @@ const (
 	ModeINPUT
 )
 
-// refreshInterval is the polling cadence for the live-update stand-in (see
-// doc.go). 2s keeps the UI responsive without hammering the daemon.
-const refreshInterval = 2 * time.Second
-
 // Model is bubbletea's root model. It holds only view/navigation state and
 // the last-fetched data — no execution state, no engine state; everything
 // here is either UI-local (mode, focus, width/height) or a cache of what
@@ -62,6 +58,9 @@ type Model struct {
 	statusLine   string // last error/info line shown in the status bar
 
 	pendingQuitConfirm bool // Q on an active run asks y/n rather than quitting outright
+
+	sse            *sseSubscription
+	pushEventCount int // envelopes received via SSE so far — this package's own tests use it as proof of push, not poll (see sse_test.go)
 
 	home         homeState
 	conversation conversationState
@@ -90,17 +89,16 @@ func New(ctx context.Context, client *cli.Client, homePath string, onboarded boo
 		screen:    screen,
 		mode:      ModeNAV,
 		onboarded: onboarded,
+		sse:       newSSESubscription(ctx, client),
 	}
 }
 
+// Init kicks off the first fetch for whatever screen is showing plus the
+// live SSE subscription's read loop (waitForSSE) — there is no tea.Tick
+// here. Every subsequent screen update is triggered by an sseEventMsg
+// arriving (Update, below), not by a timer.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.refreshCmd(), tickCmd())
-}
-
-type tickMsg time.Time
-
-func tickCmd() tea.Cmd {
-	return tea.Tick(refreshInterval, func(t time.Time) tea.Msg { return tickMsg(t) })
+	return tea.Batch(m.refreshCmd(), waitForSSE(m.sse.ch))
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -109,8 +107,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 
-	case tickMsg:
-		return m, tea.Batch(m.refreshCmd(), tickCmd())
+	case sseEventMsg:
+		// Push, not poll: refetch whatever the current screen needs the
+		// instant an event lands, then keep listening for the next one.
+		// Unfiltered by design (every screen's refetch is already cheap
+		// and this is one local daemon's event volume — AGENTS.md's "three
+		// orders of magnitude below where it would matter"), so no
+		// per-stream routing logic is needed to get correctness right.
+		m.pushEventCount++
+		return m, tea.Batch(m.refreshCmd(), waitForSSE(m.sse.ch))
+
+	case sseStatusMsg:
+		switch msg.status {
+		case cli.FollowDisconnected:
+			m.statusLine = "live updates: reconnecting..."
+		case cli.FollowConnected:
+			m.statusLine = ""
+		}
+		return m, waitForSSE(m.sse.ch)
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)

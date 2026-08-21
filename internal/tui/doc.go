@@ -7,8 +7,13 @@
 // see adr/0008-terminal-is-a-client.md for why: a renderer's lifetime is a
 // terminal session, and the work this system does must outlive it.
 //
-// Live updates are polling-based for now (a periodic re-fetch on a tea.Tick,
-// not a persistent SSE-push binding into the bubbletea update loop) — see
-// L15-tui.md's Documented decisions for why that's a real, honest scope cut
-// rather than the doc's fuller "SSE, resumable by Last-Event-ID" design.
+// Live updates are a real, persistent SSE subscription (sse.go), not a
+// tea.Tick poll: one background goroutine holds GET /events open via
+// internal/cli.Client.FollowEvents, resuming by GlobalSeq (the same
+// contract as Last-Event-ID, ADR 0010) across reconnects, and bridges
+// envelopes into bubbletea's Update loop the way bubbletea's own docs
+// describe for a channel-fed external event source — see L15-tui.md's
+// Documented decisions and L22-harness-integration.md's SSE-live-clients
+// section for the history (this replaced an earlier 2-second-poll stand-in
+// named honestly as such at the time).
 package tui

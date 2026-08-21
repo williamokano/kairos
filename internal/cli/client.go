@@ -452,7 +452,24 @@ func (c *Client) Events(ctx context.Context, streamID string, readTimeout time.D
 	}
 
 	var envs []Envelope
-	scanner := bufio.NewScanner(resp.Body)
+	err = scanSSEBody(resp.Body, func(env Envelope) error {
+		envs = append(envs, env)
+		return nil
+	})
+	if err != nil && readCtx.Err() == nil {
+		return envs, fmt.Errorf("reading events: %w", err)
+	}
+	return envs, nil
+}
+
+// scanSSEBody parses an SSE response body line by line, decoding each
+// "data: {...}" frame into an Envelope and invoking onEvent in arrival
+// order. Shared by Events (bounded historical read) and StreamEvents
+// (indefinite live read) so the wire format is decoded in exactly one
+// place. A line that fails to decode is skipped, not fatal — a single
+// malformed frame must not sever an otherwise-healthy stream.
+func scanSSEBody(body io.Reader, onEvent func(Envelope) error) error {
+	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -460,12 +477,107 @@ func (c *Client) Events(ctx context.Context, streamID string, readTimeout time.D
 			continue
 		}
 		var env Envelope
-		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &env); err == nil {
-			envs = append(envs, env)
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &env); err != nil {
+			continue
+		}
+		if err := onEvent(env); err != nil {
+			return err
 		}
 	}
-	if err := scanner.Err(); err != nil && readCtx.Err() == nil {
-		return envs, fmt.Errorf("reading events: %w", err)
+	return scanner.Err()
+}
+
+// StreamEvents opens one connection to GET /events and invokes onEvent for
+// every envelope from afterSeq onward, in order, until the daemon closes
+// the connection, an error occurs, or ctx is done. Unlike Events (a bounded
+// historical read on a deadline of its own), this is a single indefinite
+// attempt with no timeout of its own — the caller (FollowEvents, or a
+// direct user of this method) decides what "done" means and whether to
+// reconnect. A dedicated http.Client with no Timeout is used here: the
+// package-level c.http carries a 30s Timeout that would otherwise sever
+// any connection open longer than that, which is fatal to a live tail.
+func (c *Client) StreamEvents(ctx context.Context, streamID string, afterSeq int64, onConnected func(), onEvent func(Envelope) error) error {
+	path := fmt.Sprintf("/events?after=%d", afterSeq)
+	if streamID != "" {
+		path = fmt.Sprintf("/events?stream=%s&after=%d", streamID, afterSeq)
 	}
-	return envs, nil
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+	if err != nil {
+		return fmt.Errorf("building request: %w", err)
+	}
+	streamClient := &http.Client{Transport: c.http.Transport}
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("connecting to daemon: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 300 {
+		return &APIError{Status: resp.StatusCode, Message: "GET /events failed"}
+	}
+	if onConnected != nil {
+		onConnected()
+	}
+	return scanSSEBody(resp.Body, onEvent)
+}
+
+// FollowStatus reports a connection-lifecycle transition from FollowEvents,
+// so a caller can surface "reconnecting..." without FollowEvents caring how
+// (a stderr line for kairos logs --follow, a status-bar note in
+// internal/tui).
+type FollowStatus int
+
+const (
+	FollowConnecting FollowStatus = iota
+	FollowConnected
+	FollowDisconnected
+)
+
+// FollowEvents keeps GET /events open indefinitely: it reconnects with
+// capped exponential backoff on any disconnect (a transient socket hiccup,
+// a daemon restart) and resumes exactly where it left off — afterSeq
+// advances to the last envelope's GlobalSeq and every reconnect asks for
+// after=<that>, the same resumption contract GET /events's Last-Event-ID
+// handling implements server-side (ADR 0010) — so a reconnect neither
+// loses an event nor replays one twice. It returns only when ctx is done;
+// a persistent server error is retried forever, identically to a
+// persistent network error, because from here the two are
+// indistinguishable and both are transient from the caller's perspective.
+func (c *Client) FollowEvents(ctx context.Context, streamID string, afterSeq int64, onEvent func(Envelope), onStatus func(FollowStatus)) error {
+	backoff := 500 * time.Millisecond
+	const maxBackoff = 10 * time.Second
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if onStatus != nil {
+			onStatus(FollowConnecting)
+		}
+		err := c.StreamEvents(ctx, streamID, afterSeq, func() {
+			backoff = 500 * time.Millisecond
+			if onStatus != nil {
+				onStatus(FollowConnected)
+			}
+		}, func(env Envelope) error {
+			afterSeq = env.GlobalSeq
+			onEvent(env)
+			return nil
+		})
+		if ctx.Err() != nil {
+			return nil
+		}
+		if onStatus != nil {
+			onStatus(FollowDisconnected)
+		}
+		// A connect failure and a mid-stream drop are handled identically
+		// here: back off and retry regardless of what err says.
+		_ = err
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return nil
+		}
+		if backoff < maxBackoff {
+			backoff *= 2
+		}
+	}
 }

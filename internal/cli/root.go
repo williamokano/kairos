@@ -118,6 +118,7 @@ func newRootCmd(app *appCtx) *cobra.Command {
 	root.AddCommand(newLsCmd(app))
 	root.AddCommand(newShowCmd(app))
 	root.AddCommand(newConversationCmd(app))
+	root.AddCommand(newLogsCmd(app))
 	root.AddCommand(newApproveCmd(app))
 	root.AddCommand(newEffectsCmd(app))
 	root.AddCommand(newWaiverCmd(app))

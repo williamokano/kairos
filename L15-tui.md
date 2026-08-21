@@ -41,6 +41,9 @@ full N-way fork-and-vary benchmark flow (this document's Benchmark screen is a r
    is a real, larger undertaking than this document's remaining budget allows cleanly; a 2-second
    `tea.Tick` re-fetch is the honest, working stand-in, named here rather than silently presented
    as the real thing. Future work.
+   **Superseded**: implemented in the SSE-live-clients follow-up stage — see this document's Future
+   work section and `L22-harness-integration.md`. The reasoning above is kept as the historical record
+   of why polling shipped first, not as the current state.
 2. **This codebase's IDs carry no `run_`/`ht_`/`nex_`/`src_` prefix** — every entity ID is a bare
    ULID (confirmed by reading `internal/domain`/`internal/eventstore`, which never adds one). The
    command palette's ULID-shape check (`looksLikeULID`) resolves any 26-character Crockford-shaped
@@ -168,7 +171,14 @@ None from a prior version.
 
 ## Future work
 
-- Real SSE-push live updates, replacing the 2-second poll (decision #1).
+- ~~Real SSE-push live updates, replacing the 2-second poll (decision #1).~~ **Done** — a follow-up
+  stage replaced the `tea.Tick` poll with a real, persistent `GET /events` subscription
+  (`internal/tui/sse.go`), bridged into bubbletea's Update loop via the channel-plus-`tea.Cmd` pattern
+  bubbletea's own docs use for external event sources, with reconnect-and-resume via
+  `Client.FollowEvents` (ADR 0010's `Last-Event-ID`/`GlobalSeq` contract). See
+  `L22-harness-integration.md`'s "SSE live clients" section for what was built, the real bugs found,
+  and the tests. Left as struck-through history rather than deleted, per AGENTS.md §8's register
+  discipline: superseded, not erased.
 - A `TestKairos_bareTTYAttachesTheTUI` using a real pseudo-terminal (e.g. `github.com/creack/pty` —
   not yet an approved dependency, would need its own ADR) to automate the branch
   `TestKairos_bareNonTTYPrintsStatusAndExits` deliberately leaves uncovered.

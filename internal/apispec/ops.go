@@ -30,6 +30,7 @@ var Ops = []Op{
 	{Method: "GET", Path: "/runs", CLIVerb: "ls", WebPath: "GET /runs"},
 	{Method: "GET", Path: "/runs/{id}", CLIVerb: "show", WebPath: "GET /runs/{id}"},
 	{Method: "GET", Path: "/runs/{id}/conversation", CLIVerb: "conversation show", WebPath: "GET /c/{runID}"},
+	{Method: "GET", Path: "/events", CLIVerb: "logs"},
 	{Method: "POST", Path: "/runs/{id}/conversation/messages", CLIVerb: "conversation send", WebPath: "POST /c/{runID}/messages"},
 	{Method: "POST", Path: "/runs/{id}/approve", CLIVerb: "approve", WebPath: "POST /t/{runID}/{nodeID}/answer"},
 	{Method: "GET", Path: "/runs/{id}/effects", CLIVerb: "effects"},

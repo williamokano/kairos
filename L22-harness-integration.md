@@ -304,3 +304,115 @@ of a few cents of API spend.
   itself returns nothing).
 - Respects `CLAUDE_CONFIG_DIR` if already set in your shell (uses it as-is); otherwise defaults to
   `~/.claude`.
+
+## 8. SSE live clients: TUI push, and `kairos logs --follow`
+
+Closes two gaps that were named, not silently dropped, in their own build documents:
+`L15-tui.md`'s Future work #1 ("Real SSE-push live updates, replacing the 2-second poll") and
+`L04-daemon-api-cli.md`'s deferred `kairos logs --follow` ("the SSE plumbing already exists via
+`GET /events`"). Both close against the *same* daemon-side machinery — `GET /events`
+(`internal/api/events.go`), proven since L04 and reused unchanged by L14/L18 — so this pass is
+entirely about real **clients**, not new server surface. Neither `internal/api/events.go` nor its
+resumption contract (`?after=`/`Last-Event-ID`, ADR 0010) changed at all.
+
+### What was built
+
+**`internal/cli.Client`, two new methods** (`client.go`):
+
+- `StreamEvents(ctx, streamID, afterSeq, onConnected, onEvent)` — one indefinite attempt at
+  `GET /events`, using a dedicated `http.Client{Transport: c.http.Transport}` rather than the
+  package's own `c.http` (see the real bug below for why that distinction is load-bearing). Shares
+  `scanSSEBody`, a small refactor pulled out of the pre-existing `Events` method so the wire format
+  is decoded in exactly one place instead of two near-identical copies.
+- `FollowEvents(ctx, streamID, afterSeq, onEvent, onStatus)` — wraps `StreamEvents` in a reconnect
+  loop with capped exponential backoff (500ms → 10s), resuming from the last envelope's `GlobalSeq`
+  on every reconnect. This is the actual "handle reconnection/resumption correctly" mechanism both
+  clients below use; `onStatus` reports `FollowConnecting`/`FollowConnected`/`FollowDisconnected`
+  transitions so a caller can surface "reconnecting..." instead of going silent.
+
+**`internal/tui/sse.go`, new file**: `sseSubscription` bridges one background goroutine (running
+`Client.FollowEvents` against every stream, unfiltered) into bubbletea's synchronous `Update` loop
+via a buffered channel plus a `waitForSSE` `tea.Cmd` that blocks on a channel receive and is
+re-issued after every message — the same read-one-then-reissue pattern bubbletea's own docs use for
+a channel-fed external event source. `internal/tui/model.go`'s `tea.Tick`-based poll
+(`tickMsg`/`tickCmd`/`refreshInterval`) is gone outright, not merely supplemented: `Model.Init` now
+starts `waitForSSE` alongside the first fetch, and every subsequent screen refresh is triggered by
+an `sseEventMsg` arriving, not by a timer. Deliberately unfiltered by stream — every screen's
+refetch was already cheap, and re-running it once per incoming envelope, on one local daemon's
+event volume, is the same "three orders of magnitude below where it would matter" cost AGENTS.md
+already accepts for SQLite write volume — so no per-screen event-routing logic was needed to get
+this right.
+
+**`internal/cli/logs.go`, new file**: `kairos logs <runID>` (bounded historical read, reusing the
+pre-existing `Events` method) and `kairos logs <runID> --follow` (indefinite live tail via
+`FollowEvents`, ending cleanly on Ctrl-C via `signal.NotifyContext(ctx, os.Interrupt)` rather than
+an abrupt kill). `-o json` prints each envelope as a JSON line; the table form is
+`<GlobalSeq> <StreamID> <EventType> <payload>`. `apispec.Ops` gains one entry —
+`{GET /events -> CLIVerb: "logs"}` — no new route, matching the deferred item's own framing that
+the plumbing already existed; `TestUI_everyCallHasCLICounterpart` stays green with this single
+addition.
+
+### Real bugs found
+
+1. **The package `http.Client`'s 30s `Timeout` would have silently truncated every live tail past
+   30 seconds.** `cli.NewClient` sets `http.Client{Timeout: 30 * time.Second}` — a sensible default
+   for the bounded request/response calls every other verb makes, but that `Timeout` bounds the
+   *entire* request including reading the body, and would sever `kairos logs --follow` (and the
+   TUI's subscription) after exactly 30 seconds of otherwise-healthy streaming, indistinguishable
+   from a network failure. Caught during design, before it could be an intermittent field bug: fixed
+   by giving `StreamEvents` its own `http.Client{Transport: c.http.Transport}` — same unix-socket
+   dialer, no `Timeout` — so only `ctx` cancellation ends a live connection.
+2. **`internal/cli` cannot import `syscall`.** The first cut of `kairos logs --follow`'s Ctrl-C
+   handling used `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`, matching
+   `cmd/kairos/serve.go`'s daemon-shutdown pattern. `TestArchitecture_noExecOutsideExecutor` failed
+   immediately and correctly: only `internal/executor/local`, `internal/executor/exectest`, and
+   `cmd/kairos` may import `syscall`/`os/exec`/`golang.org/x/sys`. Fixed by catching `os.Interrupt`
+   only (SIGTERM handling stays where it belongs, in the daemon's own lifecycle in `cmd/kairos`) —
+   a real instance of an architecture test doing exactly its job, not a fixture drill.
+3. **No `node.execution.succeeded` event type exists.** The first draft of both new end-to-end tests
+   (below) waited for that event type by name, assumed by analogy with
+   `node.execution.failed`/`.lost`/`.interrupted`. It does not exist: a node's success is represented
+   by `node.output.received` (schema-valid output), with "succeeded" a *projected* status, never its
+   own event. Both tests failed against a real daemon on the first run — exactly the kind of
+   assumption a real end-to-end test catches that a mocked one would not — and were corrected to
+   watch for `node.output.received`.
+
+### Tests
+
+- `internal/cli/client_internal_test.go` (new, `package cli` — an internal test file, needed to
+  construct a `Client` pointed at an `httptest.Server` rather than a real unix socket):
+  `TestClient_FollowEvents_reconnectsAndResumesWithoutGapOrDuplicate` runs a fake `/events` server
+  that drops the connection after one envelope, and asserts the reconnect's `?after=` names exactly
+  that envelope's `GlobalSeq` (no gap, no duplicate) and that both `FollowConnected`/
+  `FollowDisconnected` status transitions fire.
+  `TestClient_StreamEvents_stopsOnContextCancellation` proves the other half of the contract:
+  cancelling `ctx` against an indefinitely-open connection returns promptly rather than hanging.
+- `internal/tui/sse_daemon_test.go` (new):
+  `TestSSESubscription_pushesRunEventsAsTheyLandNotOnATimer` is the real end-to-end proof for the
+  TUI half — against a real `kairos serve` and a real in-flight node (`internal/tui/testdata/live.yaml`'s
+  `n2` sleeps ~1s), it drives the actual `sseSubscription`/`waitForSSE` production code (not a mock),
+  and asserts (a) the first push for the newly created run arrives well under 2 seconds — the old
+  poll's cadence — and (b) `n2`'s `node.execution.started` and `node.output.received` pushes arrive
+  with a real ≥700ms gap between them, which a single batched fetch at the end could not produce.
+- `cmd/kairos/logs_follow_test.go` (new): `TestIntegration_logsFollowStreamsAsProduced` is the real
+  end-to-end proof for the CLI half — spawns a real `kairos logs <runID> --follow` subprocess
+  against a real daemon and the same short-lived-node fixture
+  (`cmd/kairos/testdata/logs-follow.yaml`), reads its stdout line by line as it is produced, and
+  asserts the same ≥700ms gap between `n2`'s started and output lines, then ends the follow with a
+  real `SIGINT` and asserts a clean exit — proving it is genuinely tailing, not dumping once the run
+  (and the process) has already finished.
+
+### Verification
+
+- `go build ./...`, `go vet ./...`, `gofmt -l .` — clean.
+- `golangci-lint run` — clean (three `errcheck` findings on unchecked `fmt.Fprintf`/`Fprintln`
+  return values in the new test/CLI code, and one `staticcheck` QF1003 suggesting a tagged switch
+  over an if/else-if on `sseStatusMsg.status` — all fixed, not suppressed).
+- `make arch` — clean, and this pass is one of the rare ones where a real (non-fixture) architecture
+  violation was caught and fixed live — see real bug #2 above.
+- `go test ./... -race` — full suite green, including every new test above under `-race`.
+- `make cross` (darwin/linux × amd64/arm64, `CGO_ENABLED=0`) — clean.
+
+No document's design was proven wrong by this pass — `09-cli-and-tui.md`'s SSE-plus-POST realtime
+design (ADR 0010) is exactly what got implemented, on schedule with what both build documents' own
+Future work sections said was deferred, not foreclosed.

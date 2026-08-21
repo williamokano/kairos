@@ -178,5 +178,8 @@ None from a prior version.
   `root.go`.
 - L20 (web UI) extends `apispec.Op` with a `WebCall` dimension, reusing the parity discipline
   `TestUI_everyCallHasCLICounterpart` already establishes rather than retrofitting it.
-- `kairos logs --follow` as its own verb (the SSE plumbing already exists via `GET /events`) is
-  deferred — noted here rather than silently dropped.
+- ~~`kairos logs --follow` as its own verb (the SSE plumbing already exists via `GET /events`) is
+  deferred — noted here rather than silently dropped.~~ **Done** — built in a later stage as
+  `internal/cli/logs.go`, a client of this same `GET /events` operation (`apispec.Ops` maps the
+  `logs` CLI verb onto it directly; no new route was needed). See `L22-harness-integration.md`'s "SSE
+  live clients" section.
