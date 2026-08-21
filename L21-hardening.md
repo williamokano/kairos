@@ -165,4 +165,4 @@ level in `policy_test.go`, so a full local-git-remote round-trip for `effects co
 not worth the added fixture weight here — the plumbing is structurally identical to the
 already-round-trip-tested waiver-grant and `effects resolve` paths).
 
-Committed as `<pending>`.
+Committed as `452ee1b`.
