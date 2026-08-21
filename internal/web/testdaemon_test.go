@@ -40,6 +40,7 @@ type fakeDaemon struct {
 	forkResult    cli.ForkResult
 	pauseCalls    []string
 	pauseErr      error
+	createRunErr  error
 }
 
 type cancelCall struct{ RunID, Reason string }
@@ -65,6 +66,18 @@ func newFakeDaemon(t *testing.T) (*fakeDaemon, string) {
 		_ = json.NewEncoder(w).Encode(fd.humanTasks)
 	})
 	mux.HandleFunc("POST /runs", func(w http.ResponseWriter, r *http.Request) {
+		if fd.createRunErr != nil {
+			// Matches the real daemon's internal/api/respond.go envelope
+			// shape ({"error":{"code","message"}}) — a plain-text
+			// http.Error body here would be unrealistic and silently
+			// undertest internal/cli.Client's real error-decoding path.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error": map[string]string{"code": "validation_failed", "message": fd.createRunErr.Error()},
+			})
+			return
+		}
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(cli.CreateRunResponse{RunID: "run_fake", Status: "running"})
 	})

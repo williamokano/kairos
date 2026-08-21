@@ -35,12 +35,12 @@ func registerMutations(mux *http.ServeMux, deps Deps) {
 func handleCreateRun(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form: "+err.Error(), http.StatusBadRequest)
+			writeComposerError(w, http.StatusBadRequest, "bad form: "+err.Error())
 			return
 		}
 		defPath := r.PostForm.Get("definitionPath")
 		if defPath == "" {
-			http.Error(w, "definitionPath is required", http.StatusBadRequest)
+			writeComposerError(w, http.StatusBadRequest, "definitionPath is required")
 			return
 		}
 		// NL-49's fix: the composer's hidden "nonce" field (pages.go's
@@ -53,13 +53,29 @@ func handleCreateRun(deps Deps) http.HandlerFunc {
 		defer cancel()
 		resp, err := deps.Client.CreateRun(ctx, defPath, nil, idempotencyKey)
 		if err != nil {
-			http.Error(w, "creating run: "+err.Error(), http.StatusBadGateway)
+			// A plain http.Error here used to be swallowed silently: htmx
+			// only swaps a response's body into the DOM on 2xx, so a
+			// non-2xx error rendered nothing at all — "click run and
+			// nothing happens," AGENTS.md rule 1's exact silent-failure
+			// trap. hx-target-error routes this same response into
+			// #composer-error instead via htmx's response-targeting
+			// extension, so a real failure is always visible.
+			writeComposerError(w, http.StatusBadGateway, "creating run: "+err.Error())
 			return
 		}
 		renderFragment(w, "frag/runrow", struct {
 			RunID, Status string
 		}{resp.RunID, resp.Status})
 	}
+}
+
+// writeComposerError renders an HTML fragment (not plain text) so it can
+// be swapped into the page even on a non-2xx response via htmx's
+// response-targeting extension (hx-target-error on the composer's form).
+func writeComposerError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(`<p class="error">` + html.EscapeString(msg) + `</p>`))
 }
 
 // handleAnswerDecision posts the form straight through to the existing

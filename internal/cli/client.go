@@ -77,13 +77,25 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
 		var apiErr struct {
 			Error struct {
 				Code    string `json:"code"`
 				Message string `json:"message"`
 			} `json:"error"`
 		}
-		_ = json.NewDecoder(resp.Body).Decode(&apiErr)
+		// A real daemon always writes internal/api's {"error":{...}}
+		// envelope, but a caller that decoded a plain-text body and
+		// silently produced Code="" Message="" would lose the real
+		// failure reason with no trace of it anywhere — found via a web
+		// UI test whose fake daemon (wrongly) used a plain http.Error
+		// body: the resulting error read "(status 422): " with the
+		// actual text gone. If the body isn't the expected JSON shape, or
+		// decodes to an empty message, fall back to the raw body instead
+		// of silently discarding it (AGENTS.md rule 1).
+		if err := json.Unmarshal(bodyBytes, &apiErr); err != nil || apiErr.Error.Message == "" {
+			return &APIError{Status: resp.StatusCode, Code: "unknown", Message: strings.TrimSpace(string(bodyBytes))}
+		}
 		return &APIError{Status: resp.StatusCode, Code: apiErr.Error.Code, Message: apiErr.Error.Message}
 	}
 

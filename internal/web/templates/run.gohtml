@@ -48,6 +48,11 @@
           <td>{{$nodeID}}</td><td>{{id .ExecID}}</td><td><span class="pill pill-{{.Status}}">{{.Status}}</span></td><td>{{.Attempt}}</td><td>{{.Iteration}}</td>
           {{if eq .Status "waiting"}}<td><a href="/t/{{$.State.ID}}/{{$nodeID}}">decision →</a></td>{{end}}
         </tr>
+        {{with index $.Outputs .ExecID}}
+        <tr class="output-row">
+          <td colspan="5"><details><summary>output</summary><pre class="payload">{{printf "%s" .}}</pre></details></td>
+        </tr>
+        {{end}}
         {{end}}
       {{end}}
       </tbody>

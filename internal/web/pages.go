@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -104,10 +105,36 @@ func handleRunDetail(deps Deps) http.HandlerFunc {
 			envs = nil // the run detail page still renders without event history — a load failure here is not the decision page's "partial degrades to blocked" rule, which is scoped to /t/ only
 		}
 		renderPage(w, id, "run", struct {
-			State  cli.RunState
-			Events []cli.Envelope
-		}{state, envs}, id)
+			State   cli.RunState
+			Events  []cli.Envelope
+			Outputs map[string]json.RawMessage
+		}{state, envs, latestOutputsByExecID(envs)}, id)
 	}
+}
+
+// latestOutputsByExecID surfaces what a node actually produced — real
+// testing against a genuine claude actor found that this page had NO way
+// to see a node's output anywhere (the node table shows only status, and
+// the event log shows only event types, never payloads); the actual
+// result was reachable only via the Events page's causal-tree payload
+// view or raw `kairos logs`. Keyed by ExecID (not NodeID) since a retried
+// node has more than one execution and each attempt's own output matters.
+func latestOutputsByExecID(envs []cli.Envelope) map[string]json.RawMessage {
+	out := map[string]json.RawMessage{}
+	for _, e := range envs {
+		if e.EventType != "node.output.received" {
+			continue
+		}
+		var payload struct {
+			ExecID string
+			Output json.RawMessage
+		}
+		if err := json.Unmarshal(e.Event, &payload); err != nil || payload.Output == nil {
+			continue
+		}
+		out[payload.ExecID] = payload.Output
+	}
+	return out
 }
 
 // handleDecisionPage is the highest-priority page in this document — see

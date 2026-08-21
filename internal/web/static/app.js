@@ -423,3 +423,25 @@
 
   document.addEventListener("DOMContentLoaded", init);
 })();
+
+// A non-2xx htmx response is never swapped into the DOM by default in
+// this vendored htmx build (no responseHandling config exists to change
+// that) — so a real, well-formed server error rendered nothing at all,
+// which read to a user as "I clicked run and nothing happened" (a
+// composer POST to /runs failing validation or dispatch). The server
+// already renders a real `<p class="error">` fragment on failure
+// (internal/web/mutations.go's writeComposerError); this just swaps it
+// into the element that made the request instead of silently discarding
+// it. Every mutating form in this app already renders its own success
+// fragment via hx-target on 2xx — this only ever fires on a NON-2xx
+// response, so it never fights a successful swap.
+(function () {
+  "use strict";
+  document.body.addEventListener("htmx:responseError", function (evt) {
+    var xhr = evt.detail && evt.detail.xhr;
+    if (!xhr || !xhr.responseText) return;
+    var target = evt.detail.target || evt.target;
+    if (!target) return;
+    target.insertAdjacentHTML("afterbegin", xhr.responseText);
+  });
+})();
