@@ -54,7 +54,7 @@ func newRunCmd(app *appCtx) *cobra.Command {
 			}
 			ctx, cancel := withTimeout(cmd)
 			defer cancel()
-			resp, err := client.CreateRun(ctx, args[0], paramsJSON)
+			resp, err := client.CreateRun(ctx, args[0], paramsJSON, "")
 			if err != nil {
 				return err
 			}

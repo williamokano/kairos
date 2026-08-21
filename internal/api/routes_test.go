@@ -60,6 +60,10 @@ func (nopStore) GetAdmissionSpend(context.Context, string) (float64, bool, error
 	return 0, false, nil
 }
 func (nopStore) SetAdmissionSpend(context.Context, string, float64) error { return nil }
+func (nopStore) DedupeRunCreation(context.Context, string) (string, bool, error) {
+	return "", true, nil
+}
+func (nopStore) RecordRunCreation(context.Context, string, string) error { return nil }
 
 // TestAPI_everyOpIsRegistered asserts every apispec.Op is actually
 // reachable on the mux NewMux builds — the "routes are registered" half

@@ -19,6 +19,12 @@ func registerRunRoutes(mux *http.ServeMux, deps Deps) {
 type createRunRequest struct {
 	DefinitionPath string          `json:"definitionPath"`
 	Params         json.RawMessage `json:"params,omitempty"`
+	// IdempotencyKey, if set, dedupes a retried/double-submitted POST —
+	// NL-49 (11-limitations.md): the web composer already minted this
+	// value (rendered as a hidden form "nonce") but the daemon never read
+	// it. A second request with the same key returns the run the first
+	// one created, rather than creating a new one.
+	IdempotencyKey string `json:"idempotencyKey,omitempty"`
 }
 
 type createRunResponse struct {
@@ -49,6 +55,36 @@ func handleCreateRun(deps Deps) http.HandlerFunc {
 			return
 		}
 
+		if req.IdempotencyKey != "" {
+			existingRunID, isNew, err := deps.Store.DedupeRunCreation(r.Context(), req.IdempotencyKey)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "invariant_violation", err.Error())
+				return
+			}
+			if !isNew {
+				if existingRunID == "" {
+					// A concurrent creator claimed this key an instant ago
+					// and hasn't called RecordRunCreation yet — the same
+					// rare race DedupeTrigger's own doc comment names.
+					// There is no run to return; asking the caller to
+					// retry is honest, not a silent duplicate.
+					writeError(w, http.StatusConflict, "idempotency_key_pending", "a run for this idempotency key is still being created")
+					return
+				}
+				state, ok, err := deps.Store.GetRunState(r.Context(), existingRunID)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "invariant_violation", err.Error())
+					return
+				}
+				if !ok {
+					writeError(w, http.StatusInternalServerError, "invariant_violation", "idempotency key resolved to a run that no longer exists: "+existingRunID)
+					return
+				}
+				writeJSON(w, http.StatusOK, createRunResponse{RunID: existingRunID, Status: string(state.Status)})
+				return
+			}
+		}
+
 		runID, status, err := tasksource.CreateRun(r.Context(), deps.Store, tasksource.CreateRunRequest{
 			DefinitionRef: req.DefinitionPath,
 			Params:        req.Params,
@@ -67,6 +103,13 @@ func handleCreateRun(deps Deps) http.HandlerFunc {
 			}
 			writeError(w, http.StatusInternalServerError, "invariant_violation", err.Error())
 			return
+		}
+
+		if req.IdempotencyKey != "" {
+			if err := deps.Store.RecordRunCreation(r.Context(), req.IdempotencyKey, runID); err != nil {
+				writeError(w, http.StatusInternalServerError, "invariant_violation", err.Error())
+				return
+			}
 		}
 
 		writeJSON(w, http.StatusCreated, createRunResponse{RunID: runID, Status: string(status)})

@@ -101,11 +101,16 @@ type CreateRunResponse struct {
 	Status string `json:"status"`
 }
 
-func (c *Client) CreateRun(ctx context.Context, definitionPath string, params json.RawMessage) (CreateRunResponse, error) {
+// CreateRun starts a run. idempotencyKey is optional (empty means no
+// dedupe, unchanged from before NL-49's fix) — a non-empty value causes
+// a retried/double-submitted call with the SAME key to return the run
+// the first call created, rather than creating a second one.
+func (c *Client) CreateRun(ctx context.Context, definitionPath string, params json.RawMessage, idempotencyKey string) (CreateRunResponse, error) {
 	var out CreateRunResponse
 	err := c.do(ctx, http.MethodPost, "/runs", map[string]any{
 		"definitionPath": definitionPath,
 		"params":         params,
+		"idempotencyKey": idempotencyKey,
 	}, &out)
 	return out, err
 }

@@ -31,9 +31,15 @@ func handleCreateRun(deps Deps) http.HandlerFunc {
 			http.Error(w, "definitionPath is required", http.StatusBadRequest)
 			return
 		}
+		// NL-49's fix: the composer's hidden "nonce" field (pages.go's
+		// nonce()) was rendered and posted but never actually forwarded —
+		// a double-click or a retried request after a dropped response
+		// created two runs instead of one. Now genuinely deduped
+		// server-side (internal/api's DedupeRunCreation).
+		idempotencyKey := r.PostForm.Get("nonce")
 		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 		defer cancel()
-		resp, err := deps.Client.CreateRun(ctx, defPath, nil)
+		resp, err := deps.Client.CreateRun(ctx, defPath, nil, idempotencyKey)
 		if err != nil {
 			http.Error(w, "creating run: "+err.Error(), http.StatusBadGateway)
 			return

@@ -166,3 +166,37 @@ not worth the added fixture weight here — the plumbing is structurally identic
 already-round-trip-tested waiver-grant and `effects resolve` paths).
 
 Committed as `452ee1b`.
+
+## 5. `Idempotency-Key` server-side dedupe on `POST /runs` (NL-49)
+
+`11-limitations.md`'s NL-49: the web composer already minted an `Idempotency-Key` (rendered as a
+hidden form `nonce`), but neither the web handler nor the daemon read it — a double-click or a
+retried request after a dropped response created two runs instead of one.
+
+Added a new `run_idempotency` table (migration `0005_run_idempotency.sql`, `idempotency_key TEXT
+PRIMARY KEY`) and `eventstore.Store.DedupeRunCreation`/`RecordRunCreation` — the exact two-step
+claim-then-record shape L16's `DedupeTrigger`/`RecordTriggerRun` already established (claim the
+key before the possibly-slow run-creation call, closing the race two concurrent identical
+requests would otherwise both find "not yet created" for), deliberately a separate table rather
+than reusing `trigger_dedupe`, matching NL-49's own framing that these are different identities.
+
+`internal/api`'s `POST /runs` now accepts an optional `idempotencyKey` JSON field: a repeat call
+with the same key returns the original run (`200`, not `201`) instead of creating a new one; a
+different key, or no key at all, behaves exactly as before. `internal/cli.Client.CreateRun`
+gained the parameter (empty from `kairos run` — a human typing a command once isn't the
+double-submit scenario this fixes); `internal/web/mutations.go`'s composer handler now actually
+reads and forwards the `nonce` form field it had been silently discarding since L20.
+
+Tests: `internal/api/run_idempotency_test.go` proves the same-key/different-key/no-key matrix
+via `httptest`; `cmd/kairos/idempotency_cli_test.go` proves the identical behavior over real HTTP
+against a live daemon.
+
+No real production bug found in the feature itself; a full-suite `-race` run did surface
+`TestEngine_adoptSurvivesRestartWithoutKillingTheChild` failing once, but it passed cleanly both
+in isolation and on a full `cmd/kairos` re-run immediately after — a second pre-existing,
+apparently load-sensitive flake in this package (the first was
+`TestEngine_spawnOnChildFailureDegradeStillSucceeds`, found and equally unrelated during item 2),
+noted here rather than chased, since this item's changes touch none of the adopt/reconciliation
+code involved.
+
+Committed as `<pending>`.

@@ -145,6 +145,20 @@ type Store interface {
 	// pass an empty-run_id race.
 	RecordTriggerRun(ctx context.Context, dedupeKey, runID string) error
 
+	// DedupeRunCreation is NL-49's fix: POST /runs's Idempotency-Key,
+	// claimed BEFORE the (possibly slow) run-creation call — the same
+	// two-step shape as DedupeTrigger/RecordTriggerRun, and for the same
+	// reason (claiming first closes the race two concurrent identical
+	// requests would otherwise both find "not yet created" and both
+	// create a run for). isNew is true and existingRunID is "" the first
+	// time key is seen; isNew is false and existingRunID names the
+	// already-created run on every subsequent call with the same key
+	// (empty if a concurrent creator hasn't called RecordRunCreation yet).
+	DedupeRunCreation(ctx context.Context, key string) (existingRunID string, isNew bool, err error)
+	// RecordRunCreation fills in the run_id column DedupeRunCreation left
+	// empty, once the caller has actually created the run.
+	RecordRunCreation(ctx context.Context, key, runID string) error
+
 	// GetAdmissionSpend reads day's persisted running total (rule 5's
 	// dailyUSD cap) — ok is false for a day with no recorded spend yet.
 	// See internal/admission's Future-work note: without this, a restart
