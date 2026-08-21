@@ -15,15 +15,17 @@ import (
 	"github.com/williamokano/kairos/internal/registry"
 )
 
-// dispatchLLMActor maps actor kinds claude/codex/gemini/local —
+// dispatchLLMActor maps actor kinds claude/codex/gemini/opencode/local —
 // 04-agents.md's "an LLM CLI" — onto a single configured CLI binary
 // (Config.LLMBinary), invoked through the file contract: KAIROS_OUTPUT/
 // KAIROS_SCHEMA env vars, prompt on stdin (never argv — "argv appears in
 // ps for every process on the machine, and prompts routinely contain
-// issue bodies and file excerpts"). Real per-CLI flag probing
-// (--session-id, --output-format stream-json, --permission-mode, ...) is
-// Future work: this reads only the CLI's final output.json, never an
-// incremental stream (documented decision — see L08-actor-sdk.md).
+// issue bodies and file excerpts"), PLUS the real per-CLI flags
+// llm_argv.go builds (--session-id/--resume, --output-format,
+// --permission-mode, ... — NL-29, closed by
+// L22-harness-integration.md). This still reads only the CLI's final
+// output.json, never an incremental stream (documented decision — see
+// L08-actor-sdk.md and reapLLM below).
 func (e *Engine) dispatchLLMActor(ctx context.Context, nd registry.NodeDef, c domain.CmdStartNode, actorKind string) error {
 	// See dispatchShellActor's identical comment: releases c.ExecID's
 	// admission claim on every synchronous failure path below; spawned
@@ -78,7 +80,7 @@ func (e *Engine) dispatchLLMActor(ctx context.Context, nd registry.NodeDef, c do
 		return err
 	}
 
-	started, err := e.startLLM(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, nd.Prompt, resumeOf)
+	started, err := e.startLLM(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, nd.Prompt, sessionID, resumeOf)
 	if err != nil {
 		return e.startThenFail(ctx, c, domain.FailFailure, "starting process: "+err.Error())
 	}
@@ -90,7 +92,7 @@ func (e *Engine) dispatchLLMActor(ctx context.Context, nd registry.NodeDef, c do
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
-		e.reapLLM(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, started.PID, nd.Workspace == registry.WorkspaceWrite)
+		e.reapLLM(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, sessionID, started.PID, nd.Workspace == registry.WorkspaceWrite)
 	}()
 	return nil
 }
@@ -107,7 +109,7 @@ func (e *Engine) dispatchLLMActor(ctx context.Context, nd registry.NodeDef, c do
 // per-attempt isolation is the point of that setting.
 func (e *Engine) resolveSession(ctx context.Context, nd registry.NodeDef, c domain.CmdStartNode, workDir string) (sessionID, resumeOf string, err error) {
 	if c.Attempt <= 1 || nd.SessionAffinity == "" || nd.SessionAffinity == "execution" {
-		return ulid.Make().String(), "", nil
+		return newSessionID(), "", nil
 	}
 
 	prior, ok, err := e.priorSession(ctx, c.RunID, c.NodeID)
@@ -115,7 +117,7 @@ func (e *Engine) resolveSession(ctx context.Context, nd registry.NodeDef, c doma
 		return "", "", err
 	}
 	if !ok {
-		return ulid.Make().String(), "", nil
+		return newSessionID(), "", nil
 	}
 	if _, statErr := os.Stat(prior.Dir); statErr != nil {
 		if err := e.appendNext(ctx, c.RunID, domain.SessionResumeFailed{
@@ -123,7 +125,7 @@ func (e *Engine) resolveSession(ctx context.Context, nd registry.NodeDef, c doma
 		}); err != nil {
 			return "", "", err
 		}
-		return ulid.Make().String(), "", nil
+		return newSessionID(), "", nil
 	}
 	if prior.Dir != workDir {
 		// Same trap, caught the other direction: the recorded dir still
@@ -136,9 +138,28 @@ func (e *Engine) resolveSession(ctx context.Context, nd registry.NodeDef, c doma
 		}); err != nil {
 			return "", "", err
 		}
-		return ulid.Make().String(), "", nil
+		return newSessionID(), "", nil
 	}
 	return prior.SessionID, prior.SessionID, nil
+}
+
+// newSessionID mints kairos's own opaque session identifier: a ULID's 16
+// time-ordered/random bytes, re-rendered in UUID shape (8-4-4-4-12 hex
+// groups) rather than returned via ulid.Make().String()'s own
+// Crockford-base32 encoding. This is a real correctness fix, not
+// cosmetic: Claude Code's --session-id flag validates its argument's
+// SHAPE and rejects anything that isn't UUID-formatted — verified live,
+// `claude -p --session-id not-a-uuid` fails with "Error: Invalid session
+// ID. Must be a valid UUID" — and a ULID's own string form (26
+// Crockford32 characters, no dashes) is never that shape, so passing it
+// as --session-id would always have been rejected by the real CLI. The
+// ULID's time-ordering property survives because these are the same 16
+// bytes, only re-rendered; ulid.Make() is kept (rather than
+// crypto/rand.Read directly) so this stays monotonic like every other
+// ULID this engine mints, and needs no new dependency.
+func newSessionID() string {
+	id := ulid.Make()
+	return fmt.Sprintf("%x-%x-%x-%x-%x", id[0:4], id[4:6], id[6:8], id[8:10], id[10:16])
 }
 
 // priorSession scans nodeID's own prior LLMSessionStarted facts in runID's
@@ -163,7 +184,14 @@ func (e *Engine) priorSession(ctx context.Context, runID, nodeID string) (domain
 	return latest, found, nil
 }
 
-func (e *Engine) startLLM(ctx context.Context, c domain.CmdStartNode, actorKind, workDir, dir, outputPath, schemaPath, prompt, resumeOf string) (local.Started, error) {
+// startLLM spawns actorKind's CLI with llm_argv.go's real per-kind flags
+// (never the prompt — that stays on stdin, per the file contract). Only
+// a resumeOf that nativeResumeSupported(actorKind) actually honours ever
+// reaches the child as a resume flag; a resumeOf the CLI can't act on
+// (e.g. gemini, opencode on a first invocation) is still recorded via
+// KAIROS_RESUME_SESSION_ID as Kairos's own audit trail of what it asked
+// for, even though the argv builder for that kind ignores it.
+func (e *Engine) startLLM(ctx context.Context, c domain.CmdStartNode, actorKind, workDir, dir, outputPath, schemaPath, prompt, sessionID, resumeOf string) (local.Started, error) {
 	env := []string{
 		"HOME=" + dir,
 		"PATH=/usr/bin:/bin:/usr/local/bin",
@@ -175,11 +203,15 @@ func (e *Engine) startLLM(ctx context.Context, c domain.CmdStartNode, actorKind,
 		"KAIROS_OUTPUT=" + outputPath,
 		"KAIROS_SCHEMA=" + schemaPath,
 	}
-	argv := []string{e.llmBinary}
 	if resumeOf != "" {
 		env = append(env, "KAIROS_RESUME_SESSION_ID="+resumeOf)
-		argv = append(argv, nativeResumeArgv(actorKind, resumeOf)...)
 	}
+	argv := append([]string{e.llmBinary}, buildLLMArgv(actorKind, llmInvocation{
+		sessionID:  sessionID,
+		resumeOf:   resumeOf,
+		schemaPath: schemaPath,
+		outputPath: outputPath,
+	})...)
 	return e.exec.Start(ctx, local.ExecSpec{
 		RunID: c.RunID, NodeID: c.NodeID, ExecID: c.ExecID,
 		Dir:     dir,
@@ -190,29 +222,6 @@ func (e *Engine) startLLM(ctx context.Context, c domain.CmdStartNode, actorKind,
 	})
 }
 
-// nativeResumeArgv is 04-agents.md's "native" resume mode made real: the
-// CLI's own flag for resuming its own conversation, appended to argv
-// alongside (not instead of) the KAIROS_RESUME_SESSION_ID env var — the
-// env var is Kairos's own audit trail of what it asked for; this is what
-// actually changes the invocation. gemini has no documented native resume
-// flag (04-agents.md: extraction, Stage 3, is Gemini's own path when a
-// runner cannot resume at all) and local is this repo's own placeholder
-// CLI kind (L08) with no native concept to speak of — both return nil,
-// which the caller already treats as "no resume flags to add" since
-// resumeOf being non-empty is what triggers the call in the first place;
-// a nil result here just means KAIROS_RESUME_SESSION_ID is the only
-// signal that reaches the process, same as before this document.
-func nativeResumeArgv(actorKind, sessionID string) []string {
-	switch actorKind {
-	case "claude":
-		return []string{"--resume", sessionID}
-	case "codex":
-		return []string{"exec", "resume", sessionID}
-	default:
-		return nil
-	}
-}
-
 // reapLLM blocks for the process's exit, then runs 04-agents.md's Stage 2
 // repair turn (one bounded in-session repair attempt, only) before
 // finalising via the same NodeOutputReceived path dispatchShellActor
@@ -220,7 +229,7 @@ func nativeResumeArgv(actorKind, sessionID string) []string {
 // top-level attempt, possibly on a mutated actor) are NOT this function's
 // job: Stage 4 is domain's own existing retry ladder, reached simply by
 // this function reporting SchemaValid: false like any other actor.
-func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, actorKind, workDir, dir, outputPath, schemaPath string, pid int, isWorkspaceWrite bool) {
+func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, actorKind, workDir, dir, outputPath, schemaPath, sessionID string, pid int, isWorkspaceWrite bool) {
 	defer e.releaseAndDrain(ctx, c.ExecID)
 	defer e.collectLogs(ctx, c.RunID, c.NodeID, c.ExecID, dir)
 
@@ -241,7 +250,7 @@ func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, actorKind, 
 		}); err != nil {
 			e.log.Error("recording output.repair.attempted", "error", err)
 		}
-		e.repairTurn(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, violations)
+		e.repairTurn(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, sessionID, violations)
 		valid, _ = e.checkOutput(outputPath, schemaPath)
 	}
 
@@ -273,14 +282,24 @@ func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, actorKind, 
 	}
 }
 
-// repairTurn runs the CLI exactly once more, in the same workDir/session,
-// with the validation errors appended to a fix-only instruction —
-// "one attempt only: a second means the schema or the node is wrong"
+// repairTurn runs the CLI exactly once more, in the same workDir, with
+// the validation errors appended to a fix-only instruction — "one
+// attempt only: a second means the schema or the node is wrong"
 // (04-agents.md). Errors on this second spawn are swallowed: whatever
 // happened, checkOutput's second call after this returns is what decides
 // the outcome, matching Stage 2's contract exactly (repair or don't, the
 // eventual NodeOutputReceived carries the truth either way).
-func (e *Engine) repairTurn(ctx context.Context, c domain.CmdStartNode, actorKind, workDir, dir, outputPath, schemaPath string, violations []string) {
+//
+// "In the same ... session" (04-agents.md's Stage 2) is now real, not
+// aspirational: for a kind nativeResumeSupported reports true for
+// (claude, codex), this repair invocation resumes sessionID — the same
+// session the failing attempt just ran in — via --resume, so the repair
+// turn sees the model's own prior turn and just fixes the file, exactly
+// as `claude -p --resume $SID` in 04-agents.md's Stage 2 example. For a
+// kind that can't resume by a caller-chosen id (gemini, opencode, local),
+// this is a fresh invocation with no continuity — the same behaviour
+// this function always had, before native resume was wired for real.
+func (e *Engine) repairTurn(ctx context.Context, c domain.CmdStartNode, actorKind, workDir, dir, outputPath, schemaPath, sessionID string, violations []string) {
 	var b bytes.Buffer
 	b.WriteString("Your output does not validate:\n")
 	for _, v := range violations {
@@ -288,7 +307,11 @@ func (e *Engine) repairTurn(ctx context.Context, c domain.CmdStartNode, actorKin
 	}
 	b.WriteString("Fix the FILE only. Change no code. Run `kairos check-output` until it exits 0.\n")
 
-	started, err := e.startLLM(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, b.String(), "")
+	resumeOf := ""
+	if nativeResumeSupported(actorKind) {
+		resumeOf = sessionID
+	}
+	started, err := e.startLLM(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, b.String(), sessionID, resumeOf)
 	if err != nil {
 		return
 	}

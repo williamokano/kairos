@@ -1,0 +1,5 @@
+name: bad-missing-output-opencode
+
+nodes:
+  - id: n1
+    actor: opencode

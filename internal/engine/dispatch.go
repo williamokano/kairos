@@ -111,7 +111,7 @@ func (e *Engine) runActorDispatch(ctx context.Context, nd registry.NodeDef, c do
 		return e.dispatchRuleActor(ctx, c)
 	case "shell":
 		return e.dispatchShellActor(ctx, nd, c)
-	case "claude", "codex", "gemini", "local":
+	case "claude", "codex", "gemini", "opencode", "local":
 		return e.dispatchLLMActor(ctx, nd, c, actor)
 	case "effect":
 		return e.dispatchEffectActor(ctx, nd, c)

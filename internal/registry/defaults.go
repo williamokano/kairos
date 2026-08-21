@@ -9,8 +9,13 @@ import (
 
 // agentActors are the built-in actor kinds 03-workflows.md calls "an agent
 // actor" for retry-defaulting purposes (decision #5's neighbour: which
-// actors get the write-node retry upgrade).
-var agentActors = map[string]bool{"claude": true, "codex": true, "gemini": true, "local": true}
+// actors get the write-node retry upgrade). "opencode" joins this set as
+// of NL-29's harness-integration pass (L22-harness-integration.md): it is
+// a real, live-verified agent CLI in this environment, wired the same as
+// claude/codex/gemini everywhere this map (and llmActorKinds in
+// internal/engine/admission.go, and the actor switch in
+// internal/engine/dispatch.go) is consulted.
+var agentActors = map[string]bool{"claude": true, "codex": true, "gemini": true, "opencode": true, "local": true}
 
 // requiresOutputSchema reports whether actor's output must be
 // author-declared (agent and shell actors — L8's typed-contract concern)

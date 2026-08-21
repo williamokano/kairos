@@ -67,11 +67,19 @@ func TestEngine_llmActorUsesNativeResumeFlagOnSecondAttempt(t *testing.T) {
 	workRoot := filepath.Join(home, "work")
 	runID := "run_native_resume"
 
+	// Scans all of argv (not just $1) for --resume followed by a
+	// non-empty value: attempt 2's real claudeArgv shape now leads with
+	// --print/--output-format/--permission-mode before --resume, so a
+	// position-1 check would no longer see it.
 	fakeCLI := writeFakeLLM(t, `
-if [ "$1" = "--resume" ] && [ -n "$2" ]; then
-  echo '{"ok":true}' > "$KAIROS_OUTPUT"
-  exit 0
-fi
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = "--resume" ] && [ -n "$arg" ]; then
+    echo '{"ok":true}' > "$KAIROS_OUTPUT"
+    exit 0
+  fi
+  prev="$arg"
+done
 exit 1
 `)
 

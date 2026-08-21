@@ -23,8 +23,8 @@ type Config struct {
 	// node can run. One daemon-wide repo, not per-run selection — see
 	// L06-workspaces.md's Future work.
 	WorkspaceRepo string
-	// LLMBinary is the CLI binary claude/codex/gemini/local-kind actor
-	// nodes invoke (engine.Config.LLMBinary, L08). Empty means no
+	// LLMBinary is the CLI binary claude/codex/gemini/opencode/local-kind
+	// actor nodes invoke (engine.Config.LLMBinary, L08). Empty means no
 	// llm-kind node can run.
 	LLMBinary string
 	// AdmissionNodeSlots is admission.nodes (L07) — concurrent node

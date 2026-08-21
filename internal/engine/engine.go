@@ -49,8 +49,8 @@ type Config struct {
 	// defaulting convention.
 	ArtifactRoot string
 	// LLMBinary is the CLI binary an llm-kind actor (claude/codex/gemini/
-	// local) invokes — configured, never assumed installed (L08). Empty
-	// means no llm-kind node can run; dispatchLLMActor fails that node
+	// opencode/local) invokes — configured, never assumed installed (L08).
+	// Empty means no llm-kind node can run; dispatchLLMActor fails that node
 	// loudly rather than silently falling back to anything.
 	LLMBinary string
 	// KillGrace is the SIGTERM-to-SIGKILL grace period for CmdSignalNode.

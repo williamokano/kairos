@@ -10,8 +10,11 @@ import (
 
 // llmActorKinds mirrors dispatch.go's actor switch — the set of actor
 // names that spawn an LLM CLI and therefore claim a model-class slot
-// (admission rule 4), not just a node slot.
-var llmActorKinds = map[string]bool{"claude": true, "codex": true, "gemini": true, "local": true}
+// (admission rule 4), not just a node slot. Kept in lockstep with
+// registry.agentActors (internal/registry/defaults.go) and dispatch.go's
+// switch below — "opencode" joined all three as part of NL-29's
+// harness-integration pass (L22-harness-integration.md).
+var llmActorKinds = map[string]bool{"claude": true, "codex": true, "gemini": true, "opencode": true, "local": true}
 
 // admissionRequest builds one node execution's all-or-nothing claim ask
 // from its resolved NodeDef/actor — the mapping from 03-workflows.md's
