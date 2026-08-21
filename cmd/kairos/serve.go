@@ -101,6 +101,7 @@ func serve(parentCtx context.Context) error {
 		WorkRoot:      filepath.Join(cfg.Home, "work"),
 		WorkspaceRepo: cfg.WorkspaceRepo,
 		LLMBinary:     cfg.LLMBinary,
+		LLMConfigDir:  cfg.LLMConfigDir,
 		KillGrace:     10 * time.Second,
 		Admission: admission.Config{
 			NodeSlots: cfg.AdmissionNodeSlots,

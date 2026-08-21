@@ -58,6 +58,35 @@ func buildLLMArgv(actorKind string, inv llmInvocation) []string {
 	return nil
 }
 
+// llmConfigDirEnvVar maps an actor kind onto the env var its CLI reads a
+// persistent, pre-authenticated config directory from — 04-agents.md
+// names both of these explicitly (`CLAUDE_CONFIG_DIR=~/.kairos/agents/
+// claude/backend-engineer`, `CODEX_HOME=~/.kairos/agents/codex/
+// backend-engineer`), so this table only ever transcribes the doc, never
+// invents a var. gemini/opencode have no such var documented anywhere in
+// this repo and none was found live during L22's verification pass, so
+// they are honestly absent rather than guessed — see NL-50.
+var llmConfigDirEnvVar = map[string]string{
+	"claude": "CLAUDE_CONFIG_DIR",
+	"codex":  "CODEX_HOME",
+}
+
+// configDirEnv returns the one env var (as a "NAME=value" entry ready to
+// append) that points actorKind's CLI at configDir, or nil when configDir
+// is empty or actorKind has no known config-dir var. Kept separate from
+// startLLM's main env slice construction because it is the one line
+// genuinely specific to auth/config plumbing, not the file contract every
+// actor kind shares.
+func configDirEnv(actorKind, configDir string) []string {
+	if configDir == "" {
+		return nil
+	}
+	if name, ok := llmConfigDirEnvVar[actorKind]; ok {
+		return []string{name + "=" + configDir}
+	}
+	return nil
+}
+
 // nativeResumeSupported reports whether actorKind's CLI can resume a
 // session BY AN ID THIS ENGINE CHOSE — the specific capability
 // 04-agents.md's "native" resume mode requires. claude accepts

@@ -1,0 +1,13 @@
+name: real-llm-smoke
+nodes:
+  - id: hello
+    actor: claude
+    prompt: |
+      Run exactly this Bash command and nothing else, then stop:
+
+        echo '{"ok": true}' > "$KAIROS_OUTPUT"
+
+      Do not read or modify any other file. Do not print the JSON in your
+      reply.
+    output:
+      ok: "bool!"

@@ -672,6 +672,35 @@ change is needed once the daemon side is built.
 off the header, independent of L16's `trigger_dedupe` table (that one dedupes trigger-created
 runs by source cursor, a different identity).
 
+**NL-50 · An llm-kind node authenticates only if `LLMConfigDir` is set, and only for claude/codex.**
+`dispatchLLMActor` sets `HOME` to a fresh, empty, per-run scratch directory for every invocation
+(04-agents.md's own "highest-value single line" — real, deliberate isolation from `~/.ssh`,
+`~/.aws`, and friends). Found live, running `L22-harness-integration.md`'s real smoke test against
+a real, already-authenticated `claude` CLI: the child never sees `~/.claude.json` or
+`~/.claude/.credentials.json` either, since those live under the *real* `$HOME` too, so the
+invocation failed outright — `"result":"Not logged in · Please run /login"`, exit 1 — with zero
+special handling; the daemon simply recorded the node `failed`. `engine.Config.LLMConfigDir`
+(env `KAIROS_LLM_CONFIG_DIR`) fixes this for **claude** (`CLAUDE_CONFIG_DIR`) and **codex**
+(`CODEX_HOME`) — the two env vars 04-agents.md itself documents for exactly this — but it is a
+single daemon-wide directory, not 04-agents.md's per-actor-identity provisioning
+(`~/.kairos/agents/claude/backend-engineer`, one config dir per named identity), and gemini/opencode
+have no equivalent wired at all: no such env var is documented anywhere in this repo or was found
+live during this pass, so an authenticated gemini/opencode node has no path to credentials other
+than an accident of what the per-run scratch `HOME` happens to contain (never, in practice).
+*Blast radius:* every claude/codex node run with `LLMConfigDir` unset fails every attempt with an
+auth error, not a Kairos-side error — indistinguishable, from `kairos show`'s point of view, from
+the CLI or the model itself being broken. Every gemini/opencode node is in this state
+unconditionally, regardless of config.
+*Mitigations:* `LLMConfigDir` → `CLAUDE_CONFIG_DIR`/`CODEX_HOME` (**shipped**,
+`internal/engine/llm_argv.go`'s `configDirEnv`, `TestConfigDirEnv`, and the real live rerun in
+`L22-harness-integration.md` §7 that went from a real auth failure to a real success once it was
+set); per-actor-identity config dirs, and any equivalent for gemini/opencode (**none**).
+*Detection:* `kairos doctor` could check `LLMConfigDir` is set and non-empty when an llm-kind actor
+is declared anywhere in a registered definition; not implemented. Today the only signal is the
+node's own recorded failure reason.
+*Revisit:* once per-actor-identity provisioning (04-agents.md's `~/.kairos/agents/<kind>/<identity>`)
+is built, or once a gemini/opencode config-dir env var is confirmed to exist.
+
 **NL-13 · The audit log is not tamper-proof.**
 The agent can write `~/.kairos/kairos.db` unless G6–G9 are enabled.
 *Mitigations:* `guardrails-untouched` covers `~/.kairos/**` in the diff gate (**shipped**), refusing to

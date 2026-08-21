@@ -85,6 +85,44 @@ func TestBuildLLMArgv_unknownKindGetsNoExtraFlags(t *testing.T) {
 	}
 }
 
+// TestConfigDirEnv is the regression test for the real bug
+// L22-harness-integration.md's "real end-to-end smoke test" section found
+// live: dispatchLLMActor sets HOME to a fresh per-run scratch dir (by
+// design, 04-agents.md), which means an authenticated CLI that stores
+// credentials under $HOME (claude's ~/.claude.json/~/.claude/.credentials.json)
+// finds none there and fails with "Not logged in" — verified live against
+// the real claude 2.1.236 binary. configDirEnv is the fix: it hands the
+// child the one env var 04-agents.md itself documents for exactly this
+// (CLAUDE_CONFIG_DIR / CODEX_HOME), pointed at a persistent, pre-authenticated
+// directory instead of the ephemeral per-run HOME.
+func TestConfigDirEnv(t *testing.T) {
+	tests := []struct {
+		name      string
+		actorKind string
+		configDir string
+		want      []string
+	}{
+		{"claude gets CLAUDE_CONFIG_DIR", "claude", "/home/u/.claude", []string{"CLAUDE_CONFIG_DIR=/home/u/.claude"}},
+		{"codex gets CODEX_HOME", "codex", "/home/u/.codex", []string{"CODEX_HOME=/home/u/.codex"}},
+		{"gemini has no known var", "gemini", "/home/u/.gemini", nil},
+		{"opencode has no known var", "opencode", "/home/u/.opencode", nil},
+		{"empty configDir emits nothing even for claude", "claude", "", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := configDirEnv(tt.actorKind, tt.configDir)
+			if len(got) != len(tt.want) {
+				t.Fatalf("configDirEnv(%q, %q) = %v, want %v", tt.actorKind, tt.configDir, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("configDirEnv(%q, %q)[%d] = %q, want %q", tt.actorKind, tt.configDir, i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestNativeResumeSupported(t *testing.T) {
 	tests := []struct {
 		kind string

@@ -163,3 +163,144 @@ everything is now proven: opencode's and gemini's *lack* of native resume is its
 as the `--help` text and the live experiments above found it to be, and codex remains entirely
 untested. A later pass with a codex binary available should re-run this same live-verification
 exercise before removing the "unverified" label from `codexArgv`.
+
+## 7. Real end-to-end smoke test
+
+Everything above verified `buildLLMArgv`'s output — pure-function tests, no real CLI, per this
+project's own testing discipline. It never verified that a real `kairos` binary, talking to a real
+daemon over the real unix socket, actually gets a real `claude` process from spawn to a recorded
+`succeeded` Run. The user asked for that explicitly ("otherwise I can't test"), so this section is
+that test, run for real, once, outside `go test ./...`'s normal set.
+
+**The workflow** (`cmd/kairos/testdata/real-llm-smoke.yaml`), one `claude` node, the cheapest prompt
+that still exercises the real file contract (a real Bash tool call, not a canned reply):
+
+```yaml
+name: real-llm-smoke
+nodes:
+  - id: hello
+    actor: claude
+    prompt: |
+      Run exactly this Bash command and nothing else, then stop:
+
+        echo '{"ok": true}' > "$KAIROS_OUTPUT"
+
+      Do not read or modify any other file. Do not print the JSON in your
+      reply.
+    output:
+      ok: "bool!"
+```
+
+**The real command** (also `make smoke-llm`, see below):
+
+```
+KAIROS_REAL_LLM_SMOKE=1 go test ./cmd/kairos/ -run TestRealLLMSmoke_Claude -v
+```
+
+which builds the real `kairos` binary, points `KAIROS_LLM_BINARY` at the real `claude` on `PATH`
+(2.1.236, this environment), `kairos run`s the workflow above against a real daemon it auto-starts,
+polls real `kairos show` until the Run reaches a terminal status, then runs real `kairos db verify`.
+
+### First real attempt: a genuine bug, not a wiring mistake in the test
+
+The first real run failed for real, with real information worth keeping: `kairos show` reported
+`"Status": "failed"`, and the scratch dir's captured process output showed why —
+
+```
+{"is_error":true, ... ,"result":"Not logged in · Please run /login", ...}
+```
+
+exit code 1. This is `dispatchLLMActor`'s own per-run `HOME` isolation (04-agents.md: "the
+highest-value single line here") doing exactly what it is designed to do — the child never sees
+`~/.claude.json` or `~/.claude/.credentials.json`, because those live under the *real* `$HOME`, and
+this run's `$HOME` was a fresh, empty scratch directory. Verified directly against the bare CLI,
+outside Kairos entirely, to confirm the cause before touching any code:
+
+```
+$ HOME=$(mktemp -d) PATH=/usr/bin:/bin:/usr/local/bin:... claude -p --session-id <uuid> \
+    --output-format json --permission-mode acceptEdits <<< '{"ping":true}'
+{"is_error":true, ... ,"result":"Not logged in · Please run /login", ...}   # exit 1
+
+$ CFGDIR=$(mktemp -d); cp ~/.claude/.credentials.json ~/.claude.json "$CFGDIR"/
+$ HOME=$(mktemp -d) CLAUDE_CONFIG_DIR="$CFGDIR" PATH=... claude -p --session-id <uuid> \
+    --output-format json --permission-mode acceptEdits <<< '{"ping":true}'
+{"is_error":false, ... ,"result":"pong", ...}   # exit 0
+```
+
+`CLAUDE_CONFIG_DIR` — 04-agents.md's own documented env var for exactly this
+(`CLAUDE_CONFIG_DIR=~/.kairos/agents/claude/backend-engineer`, alongside `CODEX_HOME` for codex) —
+was never wired into `startLLM`'s constructed environment. This is a real dispatch bug, in scope for
+this pass (the whole point of "real harness integration" is that a real, authenticated CLI must be
+able to actually run), not a case of the smoke test needing a hack: **every** claude/codex node this
+engine has ever dispatched would authenticate only by accident, if the per-run scratch `$HOME`
+happened to already contain credentials, which it never does.
+
+**The fix**: `engine.Config.LLMConfigDir` (env `KAIROS_LLM_CONFIG_DIR`), plumbed through
+`internal/config`, `cmd/kairos/serve.go`, and a new small per-kind table in `llm_argv.go`
+(`llmConfigDirEnvVar` — `claude` → `CLAUDE_CONFIG_DIR`, `codex` → `CODEX_HOME`, both transcribed
+directly from 04-agents.md, nothing invented) consulted by `startLLM` via the new `configDirEnv`
+helper. Empty (the default) reproduces the old behaviour exactly — no regression for anyone not
+using this new config. `gemini`/`opencode` get no entry: no such env var is documented anywhere in
+this repo or was found live during this pass, so the gap is left honest rather than guessed (see
+NL-50 in `11-limitations.md`). Pure-function regression test: `TestConfigDirEnv` in
+`llm_argv_test.go`.
+
+### Second real attempt: success
+
+```
+KAIROS_REAL_LLM_SMOKE=1 go test ./cmd/kairos/ -run TestRealLLMSmoke_Claude -v
+```
+
+with `KAIROS_LLM_CONFIG_DIR` now pointed at this environment's real, already-authenticated
+`~/.claude`. Real output, verbatim:
+
+```
+=== RUN   TestRealLLMSmoke_Claude
+    real_llm_smoke_test.go:87: kairos run output: {
+          "runId": "01M0HVG3M4M7G3M8Z577YYD1R1",
+          "status": "running"
+        }
+    real_llm_smoke_test.go:125: final kairos show: {
+          "ID": "01M0HVG3M4M7G3M8Z577YYD1R1",
+          "Status": "succeeded",
+          "Executions": {
+            "hello": [
+              {
+                "ExecID": "hello#a1.i1",
+                "NodeID": "hello",
+                "Status": "succeeded",
+                "Attempt": 1,
+                "Iteration": 1
+              }
+            ]
+          }
+        }
+    real_llm_smoke_test.go:137: kairos db verify: {
+          "mismatchedRunIds": null
+        }
+--- PASS: TestRealLLMSmoke_Claude (18.10s)
+PASS
+ok  	github.com/williamokano/kairos/cmd/kairos	18.100s
+```
+
+A real `claude` process, spawned by a real `kairos` daemon over a real socket, made a real Bash tool
+call under `--permission-mode acceptEdits` with no prompt (matching §1's own live finding), wrote a
+real `output.json`, was reaped, schema-validated, and folded into a `succeeded` Run — replayed
+cleanly (`db verify`: `mismatchedRunIds: null`). Eighteen seconds, one real invocation, on the order
+of a few cents of API spend.
+
+### Re-running this yourself
+
+- `make smoke-llm`, or directly: `KAIROS_REAL_LLM_SMOKE=1 go test ./cmd/kairos/ -run
+  TestRealLLMSmoke_Claude -v`.
+- Requires a real `claude` binary on `PATH`, already logged in (`claude /login`) — the test
+  `t.Skip`s (not fails) if either the binary or its `~/.claude/.credentials.json` is missing, so it
+  never breaks a clean checkout with no `claude` installed.
+- **Not** reachable from `go test ./...`, `-race`, or `make test`/`make race` — confirmed by running
+  the bare `go test ./cmd/kairos/... -run TestRealLLMSmoke_Claude` (no env var) and observing
+  `--- SKIP`, and separately confirming the full `go test ./... -race` run this pass's Verification
+  section reports contains no real LLM invocation (`KAIROS_REAL_LLM_SMOKE` is never set by anything
+  in this repo's normal test/CI path — `grep -r KAIROS_REAL_LLM_SMOKE` outside this file and the test
+  itself returns nothing).
+- Respects `CLAUDE_CONFIG_DIR` if already set in your shell (uses it as-is); otherwise defaults to
+  `~/.claude`.

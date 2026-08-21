@@ -53,6 +53,19 @@ type Config struct {
 	// Empty means no llm-kind node can run; dispatchLLMActor fails that node
 	// loudly rather than silently falling back to anything.
 	LLMBinary string
+	// LLMConfigDir is the persistent, pre-authenticated config directory an
+	// llm-kind actor's CLI reads its credentials from — 04-agents.md's own
+	// documented env vars (`CLAUDE_CONFIG_DIR=~/.kairos/agents/claude/...`,
+	// `CODEX_HOME=~/.kairos/agents/codex/...`), not something this engine
+	// invents. Real per-actor-identity provisioning (one config dir per
+	// named agent identity) is Future work; this is the one daemon-wide
+	// directory every claude/codex invocation is pointed at, exactly the
+	// same single-binary scoping LLMBinary already has. Empty means no
+	// config dir is passed and the child CLI falls back to its own
+	// default (real per-run HOME override, see startLLM), which for an
+	// authenticated CLI means it runs unauthenticated (see
+	// L22-harness-integration.md's live-verified finding, and NL-50).
+	LLMConfigDir string
 	// KillGrace is the SIGTERM-to-SIGKILL grace period for CmdSignalNode.
 	KillGrace time.Duration
 	// NumShards is how many goroutines partition run processing by
@@ -126,6 +139,7 @@ type Engine struct {
 	workspaces    *workspace.Manager
 	artifacts     *artifact.Store
 	llmBinary     string
+	llmConfigDir  string
 	killGrace     time.Duration
 	numShards     int
 	log           *slog.Logger
@@ -242,6 +256,7 @@ func New(cfg Config) *Engine {
 		workspaces:    workspace.New(mirrorRoot, cfg.WorkRoot, cfg.Executor),
 		artifacts:     artifact.New(artifactRoot),
 		llmBinary:     cfg.LLMBinary,
+		llmConfigDir:  cfg.LLMConfigDir,
 		killGrace:     cfg.KillGrace,
 		numShards:     cfg.NumShards,
 		log:           cfg.Logger,

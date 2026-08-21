@@ -27,6 +27,14 @@ type Config struct {
 	// actor nodes invoke (engine.Config.LLMBinary, L08). Empty means no
 	// llm-kind node can run.
 	LLMBinary string
+	// LLMConfigDir is the pre-authenticated config directory claude/codex
+	// actor nodes read credentials from (engine.Config.LLMConfigDir,
+	// L22-harness-integration.md) — passed to the child as
+	// `CLAUDE_CONFIG_DIR`/`CODEX_HOME` per 04-agents.md. Empty means an
+	// authenticated CLI runs under the node's own per-run HOME, which for
+	// claude/codex means unauthenticated (real per-actor-identity
+	// provisioning is Future work; see NL-50).
+	LLMConfigDir string
 	// AdmissionNodeSlots is admission.nodes (L07) — concurrent node
 	// executions across the whole daemon. Defaults to min(4, NumCPU/2)
 	// per 02-config.md's defaults table.
@@ -166,6 +174,7 @@ func Load() (Config, error) {
 		Home:                    home,
 		WorkspaceRepo:           v.GetString("WORKSPACE_REPO"),
 		LLMBinary:               v.GetString("LLM_BINARY"),
+		LLMConfigDir:            v.GetString("LLM_CONFIG_DIR"),
 		AdmissionNodeSlots:      nodeSlots,
 		AdmissionMaxQueued:      maxQueued,
 		DailyUSD:                dailyUSD,

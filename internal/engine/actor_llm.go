@@ -206,6 +206,7 @@ func (e *Engine) startLLM(ctx context.Context, c domain.CmdStartNode, actorKind,
 	if resumeOf != "" {
 		env = append(env, "KAIROS_RESUME_SESSION_ID="+resumeOf)
 	}
+	env = append(env, configDirEnv(actorKind, e.llmConfigDir)...)
 	argv := append([]string{e.llmBinary}, buildLLMArgv(actorKind, llmInvocation{
 		sessionID:  sessionID,
 		resumeOf:   resumeOf,
