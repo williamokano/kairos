@@ -310,6 +310,22 @@ func (c *Client) ConfirmEffect(ctx context.Context, runID, nodeID, effectName, s
 	}, nil)
 }
 
+// OpenHumanTask mirrors internal/api's openHumanTaskResponse.
+type OpenHumanTask struct {
+	RunID    string `json:"runId"`
+	NodeID   string `json:"nodeId"`
+	Kind     string `json:"kind"`
+	OpenedAt string `json:"openedAt"`
+}
+
+// ListOpenHumanTasks backs `kairos human-tasks` — L20-webui.md's
+// Documented decision #5's real, indexed "what's waiting on you" answer.
+func (c *Client) ListOpenHumanTasks(ctx context.Context) ([]OpenHumanTask, error) {
+	var out []OpenHumanTask
+	err := c.do(ctx, http.MethodGet, "/human-tasks?state=open", nil, &out)
+	return out, err
+}
+
 // ForkResult mirrors internal/api's forkResponse.
 type ForkResult struct {
 	NewRunID          string `json:"newRunId"`

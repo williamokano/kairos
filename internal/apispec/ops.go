@@ -36,6 +36,7 @@ var Ops = []Op{
 	{Method: "POST", Path: "/runs/{id}/effects/resolve", CLIVerb: "effects resolve"},
 	{Method: "POST", Path: "/runs/{id}/waivers", CLIVerb: "waiver grant"},
 	{Method: "POST", Path: "/runs/{id}/effects/confirm", CLIVerb: "effects confirm"},
+	{Method: "GET", Path: "/human-tasks", CLIVerb: "human-tasks", WebPath: "GET /"},
 	{Method: "POST", Path: "/runs/{id}/fork", CLIVerb: "fork"},
 	{Method: "GET", Path: "/runs/{a}/compare/{b}", CLIVerb: "compare"},
 	{Method: "GET", Path: "/status", CLIVerb: "status"},

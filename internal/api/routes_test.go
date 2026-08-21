@@ -64,6 +64,9 @@ func (nopStore) DedupeRunCreation(context.Context, string) (string, bool, error)
 	return "", true, nil
 }
 func (nopStore) RecordRunCreation(context.Context, string, string) error { return nil }
+func (nopStore) ListOpenHumanTasks(context.Context) ([]eventstore.OpenHumanTask, error) {
+	return nil, nil
+}
 
 // TestAPI_everyOpIsRegistered asserts every apispec.Op is actually
 // reachable on the mux NewMux builds — the "routes are registered" half

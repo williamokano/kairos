@@ -81,6 +81,7 @@ func serve(parentCtx context.Context) error {
 		Projections: []eventstore.Projection{
 			eventstore.RunStateProjection{},
 			eventstore.RunIndexProjection{},
+			eventstore.HumanTaskIndexProjection{},
 		},
 	})
 	if err != nil {

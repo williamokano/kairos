@@ -200,3 +200,40 @@ noted here rather than chased, since this item's changes touch none of the adopt
 code involved.
 
 Committed as `c13c005`.
+
+## 6. A real, indexed `GET /human-tasks?state=open` (L20)
+
+`L20-webui.md`'s Documented decision #5: the web home page's "waiting on you" section did a
+`GetRun` call per non-terminal run (O(active runs) per page load) to find any node with
+`ExecStatus == waiting`, because no real index existed yet.
+
+Added `human_task_index` (migration `0006_human_tasks.sql`, `PRIMARY KEY (run_id, node_id)`) and
+`HumanTaskIndexProjection` — a projection needing no cross-table read (unlike
+`RunIndexProjection`, which depends on `run_state_projection`), switching directly on
+`HumanTaskCreated`/`EffectConfirmationParked` (insert) and `HumanTaskAnswered`/
+`EffectConfirmationAnswered` (delete). Both kinds of thing a human resolves via `kairos approve`
+(`engine.Approve`) are indexed identically, since the web page only needs to know a row is open,
+not which kind it is. New `Store.ListOpenHumanTasks`, route `GET /human-tasks?state=open`
+(`state`'s only supported value — there is no answered-task history to serve yet, a real,
+named scope limit rather than a silent gap), `apispec.Op` entry, CLI verb `kairos human-tasks`
+(matching `09-cli-and-tui.md`'s Inbox framing: "queue only, never answers"), and the web home
+page rewired to read the index instead of scanning.
+
+Tests: `internal/eventstore/humantask_index_test.go` proves the projection tracks both event
+kinds' opens and closes independently (registering only `HumanTaskIndexProjection` alone, since
+it needs no `RunStateProjection` alongside it — a fully legal `domain.Advance` event sequence
+would have been unrelated machinery this test has no need to construct). `internal/web`'s new
+`TestHomePage_waitingOnYouReadsTheRealIndex` proves the home page renders from the real
+`/human-tasks` endpoint (via the existing `newFakeDaemon` test harness, extended with a
+`humanTasks` field) rather than the old per-run scan, using a fake `runState` with zero
+`Executions` to make the point unambiguous. `cmd/kairos/human_tasks_cli_test.go` is the
+real-daemon, real-binary proof: `kairos human-tasks` shows a genuinely parked `wait: human` node
+and stops showing it once `kairos approve` answers it.
+
+Full-suite `-race` surfaced the same two pre-existing, load-sensitive flakes noted in item 5
+(`TestEngine_adoptSurvivesRestartWithoutKillingTheChild`,
+`TestEngine_spawnOnChildFailureDegradeStillSucceeds`) — both confirmed passing in isolation and
+on repeat runs immediately after, unrelated to this item's changes (which touch neither adopt nor
+spawn/join code).
+
+Committed as `<pending>`.

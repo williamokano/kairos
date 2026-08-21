@@ -56,6 +56,35 @@ func (s *store) ListRuns(ctx context.Context, status *domain.RunStatus) ([]RunSu
 	return out, nil
 }
 
+// OpenHumanTask is one row of human_task_index — see
+// HumanTaskIndexProjection's doc comment.
+type OpenHumanTask struct {
+	RunID, NodeID string
+	Kind          string // "human" | "effect_confirm"
+	OpenedAt      string // RFC3339Nano
+}
+
+func (s *store) ListOpenHumanTasks(ctx context.Context) ([]OpenHumanTask, error) {
+	rows, err := s.readerDB.QueryContext(ctx, `SELECT run_id, node_id, kind, opened_at FROM human_task_index ORDER BY opened_at ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("querying human_task_index: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []OpenHumanTask
+	for rows.Next() {
+		var t OpenHumanTask
+		if err := rows.Scan(&t.RunID, &t.NodeID, &t.Kind, &t.OpenedAt); err != nil {
+			return nil, fmt.Errorf("scanning human_task_index row: %w", err)
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating human_task_index rows: %w", err)
+	}
+	return out, nil
+}
+
 func (s *store) GetRunState(ctx context.Context, runID string) (domain.RunState, bool, error) {
 	var stateJSON string
 	err := s.readerDB.QueryRowContext(ctx, `SELECT state_json FROM run_state_projection WHERE run_id = ?`, runID).Scan(&stateJSON)

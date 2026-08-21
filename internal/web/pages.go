@@ -50,22 +50,16 @@ func handleHome(deps Deps) http.HandlerFunc {
 			case "running", "degraded":
 				data.Running = append(data.Running, run)
 			}
-			// "Waiting on you" has no dedicated GET /human-tasks index yet
-			// (10-webui.md names one; the daemon API doesn't have it) — so
-			// this scans each non-terminal run's own Executions for a
-			// waiting node, which is O(active runs) per home-page load. A
-			// real, honest scope-narrowing: see L20-webui.md's Future work.
-			if run.Status == "running" || run.Status == "degraded" {
-				state, err := deps.Client.GetRun(ctx, run.RunID)
-				if err == nil {
-					for nodeID, execs := range state.Executions {
-						for _, e := range execs {
-							if e.Status == "waiting" {
-								data.Waiting = append(data.Waiting, waitingItem{RunID: run.RunID, NodeID: nodeID})
-							}
-						}
-					}
-				}
+		}
+
+		// "Waiting on you" now reads HumanTaskIndexProjection's real,
+		// indexed table (internal/api's GET /human-tasks) instead of
+		// scanning every non-terminal run's own state — the O(active
+		// runs)-per-page-load gap L20-webui.md's Documented decision #5
+		// named is closed.
+		if tasks, err := deps.Client.ListOpenHumanTasks(ctx); err == nil {
+			for _, t := range tasks {
+				data.Waiting = append(data.Waiting, waitingItem{RunID: t.RunID, NodeID: t.NodeID})
 			}
 		}
 		renderPage(w, "home", "home", data)

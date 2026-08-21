@@ -26,6 +26,7 @@ type fakeDaemon struct {
 	messages     []cli.ConversationMessage
 	approveCalls []approveCall
 	approveErr   error
+	humanTasks   []cli.OpenHumanTask
 }
 
 type approveCall struct{ RunID, NodeID, Decision, Reason, TypedWord string }
@@ -39,6 +40,9 @@ func newFakeDaemon(t *testing.T) (*fakeDaemon, string) {
 	})
 	mux.HandleFunc("GET /runs/{id}", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(fd.runState)
+	})
+	mux.HandleFunc("GET /human-tasks", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(fd.humanTasks)
 	})
 	mux.HandleFunc("POST /runs", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)

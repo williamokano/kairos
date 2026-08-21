@@ -159,6 +159,12 @@ type Store interface {
 	// empty, once the caller has actually created the run.
 	RecordRunCreation(ctx context.Context, key, runID string) error
 
+	// ListOpenHumanTasks reads HumanTaskIndexProjection's index —
+	// L20-webui.md's Documented decision #5's fix: a real, indexed answer
+	// to "what's currently waiting on a human," replacing the web home
+	// page's former O(active runs) scan.
+	ListOpenHumanTasks(ctx context.Context) ([]OpenHumanTask, error)
+
 	// GetAdmissionSpend reads day's persisted running total (rule 5's
 	// dailyUSD cap) — ok is false for a day with no recorded spend yet.
 	// See internal/admission's Future-work note: without this, a restart
