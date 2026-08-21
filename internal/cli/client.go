@@ -260,6 +260,33 @@ func (c *Client) ApproveHumanTask(ctx context.Context, runID, nodeID, decision, 
 	}, nil)
 }
 
+// EffectSummary mirrors internal/api's effectSummaryResponse.
+type EffectSummary struct {
+	NodeID                  string `json:"nodeId"`
+	ExecID                  string `json:"execId"`
+	Effect                  string `json:"effect"`
+	Outcome                 string `json:"outcome"`
+	ExternalRef             string `json:"externalRef,omitempty"`
+	Reason                  string `json:"reason,omitempty"`
+	Compensated             bool   `json:"compensated"`
+	WouldCompensateOnCancel bool   `json:"wouldCompensateOnCancel"`
+}
+
+// Effects lists a run's recorded effect actions — `kairos effects <run>`.
+func (c *Client) Effects(ctx context.Context, runID string) ([]EffectSummary, error) {
+	var out []EffectSummary
+	err := c.do(ctx, http.MethodGet, "/runs/"+runID+"/effects", nil, &out)
+	return out, err
+}
+
+// ResolveEffect answers a node blocked in effect.unknown — `kairos
+// effects resolve`. reason is required by the daemon side.
+func (c *Client) ResolveEffect(ctx context.Context, runID, nodeID, outcome, reason string) error {
+	return c.do(ctx, http.MethodPost, "/runs/"+runID+"/effects/resolve", map[string]string{
+		"nodeId": nodeID, "outcome": outcome, "reason": reason,
+	}, nil)
+}
+
 // ForkResult mirrors internal/api's forkResponse.
 type ForkResult struct {
 	NewRunID          string `json:"newRunId"`

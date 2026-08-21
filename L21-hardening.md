@@ -75,4 +75,44 @@ isolation and on 5 repeated full-package runs; this document's changes touch nei
 `spawn.go` nor join/degrade logic, so it's flagged here as a known, apparently load-sensitive
 pre-existing flake rather than chased down — out of this item's scope per AGENTS §7.
 
+Committed as `c11f4bd`.
+
+## 3. `kairos effects` CLI surface + `EffectUnknown` manual resolution (L12)
+
+`L12-effects-compensation.md`'s Future work named two gaps: no CLI verb for "what has been
+applied and what compensation would unwind" (the daemon-side data already existed in the event
+log — `compensateRun` already walks it to decide what to reverse on cancel/failure), and no way
+for an operator to resolve a node blocked in `effect.unknown` without direct event-store access
+(`reconcileEffectNode`'s own `res.Outcome` switch was the only place this logic lived, reachable
+only automatically during `Reconcile`).
+
+Added `internal/engine/effects_list.go`: `Engine.Effects(ctx, runID) ([]EffectSummary, error)`
+(a read-only replay of `EffectAttempted`/`Applied`/`Failed`/`Unknown`/`Compensated` events —
+`WouldCompensateOnCancel` mirrors `compensateRun`'s exact applied-and-not-yet-compensated
+selection, without ever calling a real provider) and `Engine.ResolveEffectUnknown(ctx, runID,
+nodeID, outcome, reason)` — `reconcileEffectNode`'s exact append sequence
+(`EffectApplied`/`Failed` then `NodeOutputReceived`/`NodeExecutionFailed`), made reachable
+outside of `Reconcile` by following `isLive()`'s existing branch (live: `appendNext`, the shard
+folds it; not live: `appendAndFoldBeforeStart`, same as `parkForEffectConfirmation`'s precedent).
+
+New routes `GET /runs/{id}/effects` and `POST /runs/{id}/effects/resolve`
+(`internal/api/effects.go`), `apispec.Op` entries, and CLI verbs `kairos effects <run>` /
+`kairos effects resolve <run> --node --outcome --reason` (`internal/cli/effects.go`) —
+deliberately no `--yes`/`--all`, matching `kairos approve`'s established anti-rubber-stamp
+discipline, since resolving a node with no automated evidence either way is exactly the kind of
+decision this codebase never lets be bypassed.
+
+Tests: `internal/engine/effects_list_test.go` proves the listing against a real applied effect
+and, separately, seeds the exact stuck-forever event sequence `reconcileEffectNode`'s
+Probe-returns-false path produces (confirmed non-terminal before resolving, per this project's
+consistent "assert the mess exists" discipline) and proves `ResolveEffectUnknown` unblocks it to
+`RunSucceeded`. `cmd/kairos/effects_cli_test.go` is the real-daemon, real-binary proof: an
+effect-free run's `kairos effects` returns a genuinely empty list, and `kairos effects resolve`'s
+flag validation and the daemon's own invariant check (no Executing exec to resolve) both surface
+correctly over the real HTTP wire, not just at the unit level.
+
+No real production bug found in this item — everything built clean the first time it compiled;
+the only fix needed was in the test file itself (an unused/broken helper from an earlier draft,
+removed before committing).
+
 Committed as `<pending>`.
