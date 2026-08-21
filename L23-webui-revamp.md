@@ -424,3 +424,122 @@ Named honestly, not silently dropped:
   out of scope for this document per AGENTS.md §7, named honestly rather than invented.
 - **Dark-mode contrast CI, the broader accessibility pass, packaging** — unrelated to this pass,
   unchanged from L20-webui.md's original Future work.
+
+## 6. The visual revamp — a real design system, not a token gesture
+
+The fourth pass through this log, and the one that closes the "web UI buildout + revamp" arc: every
+page from L20 through section 5 above was functionally complete but visually a bare `html/template`
+default (system-ui body font, browser-default `<button>`s, a handful of scattered hex colors). This
+pass restyled the whole app in place — `internal/web/static/app.css` rewritten end to end, three
+templates (`home.gohtml`, `runs.gohtml`, `run.gohtml`) given a handful of additive class hooks — with
+**zero changes to `app.js`, route handlers, or any Go rendering logic**. ADR 0007's constraint held
+throughout: still `html/template` + `//go:embed`, still one hand-written CSS file, no Node, no
+bundler, no build step. `go build ./...` still produces the whole thing.
+
+### Dark-mode-first, not a toggle — and why
+
+The page commits to a genuine dark palette as its authored default and answers `prefers-color-scheme`
+honestly for a system set to light; it does **not** grow a manual light/dark switch. Two reasons, both
+already load-bearing elsewhere in this design: first, the TUI (bubbletea/lipgloss) is dark by
+convention with no light mode of its own, and the CLI's output has no concept of "theme" at all — a
+toggle would make the web surface the only one of the three with a choice to make, working against
+"CLI/TUI/web should feel like one coherent product." Second, and more structurally: a manual toggle is
+client-held UI state, and ADR 0007's central rule for this whole surface is **"no surface holds
+state"** — both the web UI and the TUI are stateless clients of the same API, precisely so an SSE event
+can always trigger a server re-render rather than a client-side patch. A `data-theme` cookie or
+`localStorage` preference would be the first exception to that rule, for a preference the browser
+already reports for free. `prefers-color-scheme` is not a compromise here; it is the more honest
+answer available.
+
+### Typography
+
+One font stack, used everywhere, headings included: `ui-monospace, "SF Mono", "Cascadia Code",
+"JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace`. No web font is loaded — ADR 0007's
+"the page works with no network at all" extends to typography the same way it already applies to htmx
+being vendored rather than CDN-linked; every name in that stack is a system font already on the
+platforms this ships for. Committing to monospace for body copy as well as data (not just diffs and
+`<code>`, which already had it) is the one explicitly requested identity choice: a run id, a gate name,
+and a sentence of prose now render in the same typeface a `kairos show` or a TUI screen would use,
+so screenshots of the three surfaces side by side read as one product's outputs, not three.
+
+### Color, spacing, elevation — token-based, not scattered
+
+Every color, spacing, radius, shadow, and motion-duration value used anywhere in the stylesheet is a
+CSS custom property declared once in `:root` (dark) and re-declared once under
+`@media (prefers-color-scheme: light)` — no component rule hand-writes a hex code or a raw `rem`
+value. The scale:
+
+- **Spacing**: `--space-1` through `--space-8`, a 4px-based scale (0.25rem…3rem), used for every
+  margin/padding/gap in the file.
+- **Color**: a semantic set, not a swatch — `--bg`/`--bg-elevated`/`--bg-inset` (three depths, used for
+  page background / card background / code-and-diff background respectively, the closest thing this
+  flat, cardless design gets to elevation), `--fg`/`--fg-muted`/`--fg-subtle` (three text emphasis
+  levels), `--border`/`--border-strong`, `--accent`/`--accent-strong`, and `--risk`/`--pass`/`--warn`
+  each with a paired `-bg` wash for status pills and banners. Components reference the semantic name
+  (`var(--risk-bg)`), never the palette directly, so the light override is a complete second palette
+  behind the same names rather than a per-component light/dark branch.
+- **Elevation**: no drop shadows standing in for a card system that doesn't otherwise exist in this
+  flat design — `--shadow-sm/md/lg` are used sparingly, for the two floating surfaces that genuinely
+  lift off the page (the command palette and the confirm dialogs), plus a faint `--shadow-sm` on
+  `.pane`. Depth otherwise comes from the three background tokens, not from shadows layered on a flat
+  color.
+- **Motion**: `--dur-fast` (110ms, hover/focus state changes) and `--dur-med` (180ms, the dialog/palette
+  entrance), one easing curve (`--ease`), and a single `@media (prefers-reduced-motion: reduce)` block
+  that collapses every animation/transition duration to near-zero — checked by hand against Chrome
+  headless with `prefers-reduced-motion` emulated, not merely asserted in a comment.
+
+### Componentry added, all in plain CSS
+
+Real button styling (dark tools ship real buttons, not the browser default grey rectangle — a filled
+accent style for `type="submit"`, an outlined style otherwise, a pressed-state `translateY` on
+`:active`), status pills (`.pill`, `.pill-running`/`.pill-succeeded`/`.pill-failed`/etc., driven by the
+existing `{{.Status}}` string already present in `home.gohtml`/`runs.gohtml`/`run.gohtml` — the class
+name is templated as `pill-{{.Status}}`, no new Go data), a consistent `.note`/`.error`/`.empty` state
+family, a redesigned sticky topbar (backdrop-blur, a small diamond mark before the wordmark), and a
+genuine dialog/palette entrance animation (`@keyframes dialog-in`, respecting reduced-motion). Every
+interactive element gets a real `:focus-visible` ring (`--focus-ring`, a `box-shadow` rather than the
+browser default outline, chosen so it reads consistently across `<button>`, `<a>`, `<input>`, and the
+`[data-nav-item].nav-cursor` rows the keyboard model already drives) — this was a gap in the prior CSS
+(no `:focus-visible` rule existed at all outside the nav-cursor outline) and is a genuine accessibility
+improvement, not merely cosmetic.
+
+### A real, pre-existing bug this pass's own screenshot check found
+
+Rendering the page through headless Chrome (`google-chrome --headless=new --screenshot`, real
+Chrome 151 — no Node/npm/bundler pulled in to get it, and nothing in this repo depends on it existing;
+it was used once, by hand, as this pass's screenshot-equivalent check, exactly as
+`L23-webui-revamp.md`'s own task framing invited) surfaced a genuine, pre-existing rendering bug in
+`.palette-overlay`, present since the command-palette pass (section 5) and **not introduced by this
+one**: the rule set `display: flex` unconditionally, and CSS cascade origin rules mean an author-origin
+declaration always wins over the user-agent stylesheet's `[hidden] { display: none }` **regardless of
+selector specificity** — so toggling the palette's `hidden` IDL property from `app.js` was silently
+not hiding it. The command palette rendered open, and visible, on every page load. Confirmed visually
+(a screenshot with the fix reverted shows the overlay covering the whole page on initial load) and
+fixed with one additive rule, `.palette-overlay[hidden] { display: none; }`, scoped to the same
+selector so it changes nothing else. `TestLayout_rendersPaletteOverlayAndKeyboardStatusHooks` already
+asserted the *server-rendered* `hidden` attribute was present in the markup — the right test for what
+Go controls — but nothing in this tree executes CSS cascade rules, so a real browser render was the
+only way this was ever going to surface. No existing test covered client-rendered visibility (JS/CSS
+execution is untestable-by-Go in this stack, the same honest limitation section 5's own tests already
+name), so no test regressed; this is a real bug found and fixed by the screenshot check the task asked
+for, not a theorized one.
+
+### What stayed exactly as it was
+
+`app.js` is untouched — every behavioral invariant it enforces (the decision screen's
+`IntersectionObserver`-gated fieldset, the confirm-dialog typed-match enablement, the command
+palette's screen/verb/ULID resolution order, the keyboard model's global bindings) is driven by DOM
+hooks and JS logic this pass never touched. The three template edits made (`home.gohtml`/
+`runs.gohtml`/`run.gohtml`, wrapping existing status strings in a `.pill` span and existing tables in a
+`.table-wrap` scroll container) are additive: every id, `data-*` attribute, and DOM-order constraint
+the existing test suite depends on — `data-pane="risk"` before `data-pane="findings"` before
+`data-pane="decision"`, the fieldset's `disabled` attribute inside its own tag, `data-confirm-submit
+disabled` appearing exactly twice on the run page, `id="cancel-dialog"`/`id="fork-dialog"` present and
+never rendering with an `open` attribute, `id="pause-dialog-{id}"` only for an enabled source, the
+literal `palette-overlay" class="palette-overlay" hidden` string, `data-run-id`/`data-nav-list`/
+`data-nav-item data-href="..."` — is byte-identical to before. `go test ./... -race`, `golangci-lint
+run`, `gofmt -l .`, `make arch`, and `make cross` are all clean after this pass with no test edited.
+
+This closes the "web UI buildout + revamp" arc L20 opened and L23 has carried since: every page named
+in 10-webui.md's original mockups now exists, is wired to a real daemon end to end, and looks like a
+considered product rather than an unstyled placeholder for one.

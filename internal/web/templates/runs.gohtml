@@ -3,13 +3,15 @@
 {{if eq (len .Runs) 0}}
   <p class="empty">No runs yet.</p>
 {{else}}
+<div class="table-wrap">
 <table data-nav-list>
   <thead><tr><th>run</th><th>status</th><th>started</th><th>updated</th></tr></thead>
   <tbody>
   {{range .Runs}}
-  <tr data-nav-item data-href="/runs/{{.RunID}}"><td><a href="/runs/{{.RunID}}">{{id .RunID}}</a></td><td>{{.Status}}</td><td>{{relTime .StartedAt}}</td><td>{{relTime .UpdatedAt}}</td></tr>
+  <tr data-nav-item data-href="/runs/{{.RunID}}"><td><a href="/runs/{{.RunID}}">{{id .RunID}}</a></td><td><span class="pill pill-{{.Status}}">{{.Status}}</span></td><td>{{relTime .StartedAt}}</td><td>{{relTime .UpdatedAt}}</td></tr>
   {{end}}
   </tbody>
 </table>
+</div>
 {{end}}
 {{end}}

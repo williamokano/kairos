@@ -14,7 +14,7 @@
   {{else}}
   <ul class="waiting-list" data-nav-list>
     {{range .Waiting}}
-    <li data-nav-item><a href="/t/{{.RunID}}/{{.NodeID}}">{{.RunID}} · {{.NodeID}}</a> — waiting</li>
+    <li data-nav-item data-href="/t/{{.RunID}}/{{.NodeID}}"><a href="/t/{{.RunID}}/{{.NodeID}}">{{.RunID}} · {{.NodeID}}</a> — waiting</li>
     {{end}}
   </ul>
   {{end}}
@@ -25,14 +25,16 @@
   {{if eq (len .Running) 0}}
     <p class="empty">Nothing running. Describe a task above, or drop a file in ~/.kairos/inbox/.</p>
   {{else}}
+  <div class="table-wrap">
   <table data-nav-list>
     <thead><tr><th>run</th><th>status</th><th>started</th></tr></thead>
     <tbody>
     {{range .Running}}
-    <tr id="run-{{.RunID}}" data-nav-item data-href="/runs/{{.RunID}}"><td><a href="/runs/{{.RunID}}">{{id .RunID}}</a></td><td>{{.Status}}</td><td>{{relTime .StartedAt}}</td></tr>
+    <tr id="run-{{.RunID}}" data-nav-item data-href="/runs/{{.RunID}}"><td><a href="/runs/{{.RunID}}">{{id .RunID}}</a></td><td><span class="pill pill-{{.Status}}">{{.Status}}</span></td><td>{{relTime .StartedAt}}</td></tr>
     {{end}}
     </tbody>
   </table>
+  </div>
   {{end}}
 </section>
 {{end}}
