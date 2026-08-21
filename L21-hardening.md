@@ -115,4 +115,4 @@ No real production bug found in this item — everything built clean the first t
 the only fix needed was in the test file itself (an unused/broken helper from an earlier draft,
 removed before committing).
 
-Committed as `<pending>`.
+Committed as `78f140d`.
