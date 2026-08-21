@@ -119,7 +119,7 @@ func (e *Engine) runActorDispatch(ctx context.Context, nd registry.NodeDef, c do
 		// human/builtin.* actors are out of L08's scope too — the engine
 		// fails the node honestly rather than hanging forever.
 		defer e.releaseAndDrain(ctx, c.ExecID)
-		return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure,
+		return e.startThenFail(ctx, c, domain.FailFailure,
 			fmt.Sprintf("actor %q is not implemented", actor))
 	}
 }
@@ -204,11 +204,28 @@ func (e *Engine) appendNodeFailed(ctx context.Context, runID, nodeID, execID str
 	})
 }
 
-// denyNode records c as a zero-duration started-then-failed attempt — see
-// dispatchStartNode's comment on why NodeExecutionStarted must be
-// appended first for a Denied outcome.
+// startThenFail records c as a zero-duration started-then-failed attempt:
+// domain's legalExecEvents table only accepts NodeExecutionFailed against
+// an Executing exec (ExecPending accepts only Started), so any failure
+// discovered before a process is actually spawned — an admission denial,
+// a policy denial, a missing workspace config, a preflight binary that
+// doesn't exist, Start() itself returning an error — has no legal
+// Pending->Failed transition without first recording that the attempt
+// began. This is the one shared mechanism every such call site must
+// route through (NL-31): using appendNodeFailed directly here is exactly
+// the illegal-transition trap this function exists to close.
+func (e *Engine) startThenFail(ctx context.Context, c domain.CmdStartNode, reason domain.FailReason, message string) error {
+	if err := e.appendNext(ctx, c.RunID, domain.NodeExecutionStarted(c)); err != nil {
+		return err
+	}
+	return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, reason, message)
+}
+
+// denyNode is startThenFail for an admission denial specifically — the
+// "denied: " prefix names the outcome as a refusal to run at all, not a
+// failure encountered while running.
 func (e *Engine) denyNode(ctx context.Context, c domain.CmdStartNode, reason string) error {
-	return e.denyNodeWithReason(ctx, c, domain.FailFailure, reason)
+	return e.startThenFail(ctx, c, domain.FailFailure, "denied: "+reason)
 }
 
 // denyNodeWithReason is denyNode with a caller-chosen FailReason — L11's
@@ -216,10 +233,7 @@ func (e *Engine) denyNode(ctx context.Context, c domain.CmdStartNode, reason str
 // so a policy denial is distinguishable from an admission denial or an
 // ordinary actor failure, both of which stay FailFailure.
 func (e *Engine) denyNodeWithReason(ctx context.Context, c domain.CmdStartNode, reason domain.FailReason, message string) error {
-	if err := e.appendNext(ctx, c.RunID, domain.NodeExecutionStarted(c)); err != nil {
-		return err
-	}
-	return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, reason, "denied: "+message)
+	return e.startThenFail(ctx, c, reason, "denied: "+message)
 }
 
 func (e *Engine) appendInterrupted(ctx context.Context, runID, nodeID, execID string) error {

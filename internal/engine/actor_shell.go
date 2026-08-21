@@ -45,12 +45,12 @@ func (e *Engine) dispatchShellActor(ctx context.Context, nd registry.NodeDef, c 
 	workDir := dir
 	if nd.Workspace == registry.WorkspaceWrite {
 		if e.workspaceRepo == "" {
-			return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure,
+			return e.startThenFail(ctx, c, domain.FailFailure,
 				"node declares workspace: write but the engine has no configured WorkspaceRepo")
 		}
 		ws, err := e.workspaces.Provision(ctx, c.RunID, e.workspaceRepo)
 		if err != nil {
-			return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure, "provisioning workspace: "+err.Error())
+			return e.startThenFail(ctx, c, domain.FailFailure, "provisioning workspace: "+err.Error())
 		}
 		workDir = ws.Dir
 	}
@@ -75,7 +75,7 @@ func (e *Engine) dispatchShellActor(ctx context.Context, nd registry.NodeDef, c 
 		Argv: []string{"/bin/sh", "-c", nd.Prompt},
 	})
 	if err != nil {
-		return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure, "starting process: "+err.Error())
+		return e.startThenFail(ctx, c, domain.FailFailure, "starting process: "+err.Error())
 	}
 
 	if err := e.appendNext(ctx, c.RunID, domain.NodeExecutionStarted(c)); err != nil {

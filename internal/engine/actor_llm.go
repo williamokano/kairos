@@ -36,29 +36,29 @@ func (e *Engine) dispatchLLMActor(ctx context.Context, nd registry.NodeDef, c do
 	}()
 
 	if e.llmBinary == "" {
-		return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure,
+		return e.startThenFail(ctx, c, domain.FailFailure,
 			fmt.Sprintf("actor %q requires a configured LLM binary (engine.Config.LLMBinary is empty)", actorKind))
 	}
 
 	dir := e.scratchDir(c.RunID, c.ExecID)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure, "creating scratch dir: "+err.Error())
+		return e.startThenFail(ctx, c, domain.FailFailure, "creating scratch dir: "+err.Error())
 	}
 	outputPath := filepath.Join(dir, "output.json")
 	schemaPath := filepath.Join(dir, "output.schema.json")
 	if err := os.WriteFile(schemaPath, nd.OutputSchemaRaw, 0o444); err != nil {
-		return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure, "writing schema file: "+err.Error())
+		return e.startThenFail(ctx, c, domain.FailFailure, "writing schema file: "+err.Error())
 	}
 
 	workDir := dir
 	if nd.Workspace == registry.WorkspaceWrite {
 		if e.workspaceRepo == "" {
-			return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure,
+			return e.startThenFail(ctx, c, domain.FailFailure,
 				"node declares workspace: write but the engine has no configured WorkspaceRepo")
 		}
 		ws, err := e.workspaces.Provision(ctx, c.RunID, e.workspaceRepo)
 		if err != nil {
-			return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure, "provisioning workspace: "+err.Error())
+			return e.startThenFail(ctx, c, domain.FailFailure, "provisioning workspace: "+err.Error())
 		}
 		workDir = ws.Dir
 	}
@@ -80,7 +80,7 @@ func (e *Engine) dispatchLLMActor(ctx context.Context, nd registry.NodeDef, c do
 
 	started, err := e.startLLM(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, nd.Prompt, resumeOf)
 	if err != nil {
-		return e.appendNodeFailed(ctx, c.RunID, c.NodeID, c.ExecID, domain.FailFailure, "starting process: "+err.Error())
+		return e.startThenFail(ctx, c, domain.FailFailure, "starting process: "+err.Error())
 	}
 	if err := e.appendNext(ctx, c.RunID, domain.NodeExecutionStarted(c)); err != nil {
 		return err
