@@ -71,6 +71,24 @@ var legalRunEvents = map[RunStatus]map[string]bool{
 		RunDegradedResolved{}.EventType(): true,
 		RunCancelled{}.EventType():        true,
 	},
+	// RunCancelledS is terminal for the run — but advanceRunCancelled's own
+	// CmdSignalNode (dispatchSignalNode, internal/engine/dispatch.go) records
+	// NodeExecutionInterrupted BEFORE it even sends the kill signal, and that
+	// event folds against THIS SAME already-updated RunState (Status flips to
+	// Cancelled synchronously, within the same Advance call that produced the
+	// cmd). Without this entry, that fold is rejected as an illegal
+	// transition — a real, previously-latent bug: cancelling a run made it
+	// structurally impossible to ever record that its own in-flight node was
+	// interrupted, found by TestCancel_stopsARunningNodeAndReachesCancelled
+	// (internal/engine/cancel_test.go), the first test ever to exercise
+	// RunCancelled against a genuinely running node. Deliberately NOT
+	// extended to NodeOutputReceived/NodeExecutionFailed/NodeGatesEvaluated:
+	// those handlers route via graph edges (dispatchExec), which would
+	// resume forward progress on a run that was just cancelled — only
+	// NodeExecutionInterrupted's handler is a pure status-set with no cmds.
+	RunCancelledS: {
+		NodeExecutionInterrupted{}.EventType(): true,
+	},
 }
 
 func legalRunEvent(s RunStatus, et string) bool {

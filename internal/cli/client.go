@@ -361,6 +361,13 @@ func (c *Client) Fork(ctx context.Context, runID string, atSequence int, overrid
 	return out, err
 }
 
+// Cancel backs `kairos cancel <runID>` and the web UI's cancel dialog —
+// both new this pass (see internal/engine/cancel.go's doc comment: the
+// underlying Engine.Cancel entry point did not exist anywhere before it).
+func (c *Client) Cancel(ctx context.Context, runID, reason string) error {
+	return c.do(ctx, http.MethodPost, "/runs/"+runID+"/cancel", map[string]any{"reason": reason}, nil)
+}
+
 // CompareSide mirrors internal/api's runSummaryForCompare.
 type CompareSide struct {
 	RunID       string `json:"runId"`

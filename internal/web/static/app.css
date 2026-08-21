@@ -78,3 +78,24 @@ table.diff-split td.diff-content { width: 50%; }
 .causal-tree .depth-6 { margin-left: 6em; }
 .causal-tree .depth-7 { margin-left: 7em; }
 .causal-tree .depth-8 { margin-left: 8em; }
+
+/* danger zone (cancel/fork) and confirm dialogs */
+.danger-zone { margin: 1rem 0; display: flex; gap: 0.5rem; align-items: center; }
+dialog.confirm-dialog { border: 1px solid var(--risk); border-radius: 8px; padding: 1rem; color: var(--fg); background: var(--bg); max-width: 28rem; }
+dialog.confirm-dialog::backdrop { background: rgba(0,0,0,0.5); }
+dialog.confirm-dialog form { display: flex; flex-direction: column; gap: 0.6rem; }
+dialog.confirm-dialog h2 { margin: 0; font-size: 1rem; }
+.mutation-done { color: var(--pass); }
+
+/* command palette */
+.palette-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; z-index: 100; }
+.palette-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; width: min(32rem, 90vw); }
+.palette-box input { width: 100%; font: inherit; padding: 0.4rem; }
+.palette-hint { color: var(--muted); font-size: 0.8rem; margin: 0.4rem 0 0; min-height: 1.1em; }
+.kbd-hint { margin-left: auto; color: var(--muted); font-size: 0.8rem; }
+.kbd-hint kbd, .palette-box kbd { border: 1px solid var(--border); border-radius: 3px; padding: 0 0.3rem; }
+.kbd-status { position: fixed; bottom: 0.5rem; left: 0.5rem; color: var(--muted); font-size: 0.8rem; margin: 0; }
+
+/* j/k list-cursor highlight (data-nav-list / data-nav-item, app.js) */
+[data-nav-item].nav-cursor { outline: 2px solid var(--accent); outline-offset: -2px; }
+li[data-nav-item].nav-cursor { background: rgba(88,166,255,0.12); }

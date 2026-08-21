@@ -6,7 +6,7 @@
   <p class="empty">No trigger sources configured.</p>
 {{else}}
 <table>
-  <thead><tr><th>id</th><th>kind</th><th>enabled</th><th>health</th><th>consecutive errors</th><th>last poll</th><th>next poll</th><th>cursor</th></tr></thead>
+  <thead><tr><th>id</th><th>kind</th><th>enabled</th><th>health</th><th>consecutive errors</th><th>last poll</th><th>next poll</th><th>cursor</th><th></th></tr></thead>
   <tbody>
   {{range .Sources}}
   <tr>
@@ -18,6 +18,23 @@
     <td>{{if .LastPollAt}}{{relTime .LastPollAt}}{{else}}never{{end}}</td>
     <td>{{if .NextPollAt}}{{.NextPollAt}}{{else}}—{{end}}</td>
     <td>{{if .Cursor}}{{.Cursor}}{{else}}—{{end}}</td>
+    <td>
+      {{if .Enabled}}
+      <button type="button" data-open-dialog="pause-dialog-{{.ID}}">pause</button>
+      <dialog id="pause-dialog-{{.ID}}" class="confirm-dialog">
+        <form hx-post="/sources/{{.ID}}/pause" hx-target="#mutation-result-{{.ID}}" hx-swap="innerHTML" data-confirm-target="{{.ID}}">
+          <h2>Pause source {{.ID}}?</h2>
+          <p>Stops polling without deleting it — resume any time with <code>kairos src resume {{.ID}}</code>.</p>
+          <label>type <code>{{.ID}}</code> to confirm
+            <input type="text" name="confirm" pattern="{{.ID}}" autocomplete="off" required>
+          </label>
+          <button type="submit" data-confirm-submit disabled>pause this source</button>
+          <button type="button" data-close-dialog>never mind</button>
+        </form>
+      </dialog>
+      <span id="mutation-result-{{.ID}}"></span>
+      {{end}}
+    </td>
   </tr>
   {{end}}
   </tbody>

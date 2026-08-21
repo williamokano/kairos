@@ -106,7 +106,7 @@ func handleRunDetail(deps Deps) http.HandlerFunc {
 		renderPage(w, id, "run", struct {
 			State  cli.RunState
 			Events []cli.Envelope
-		}{state, envs})
+		}{state, envs}, id)
 	}
 }
 
@@ -132,7 +132,7 @@ func handleDecisionPage(deps Deps) http.HandlerFunc {
 			data.Context = decisionctx.Build(envs, nodeID)
 			data.EvidenceLoaded = true
 		}
-		renderPage(w, "decision", "decision", data)
+		renderPage(w, "decision", "decision", data, runID)
 	}
 }
 
@@ -158,7 +158,7 @@ func handleConversationPage(deps Deps) http.HandlerFunc {
 			RunID     string
 			Messages  []cli.ConversationMessage
 			FormNonce string
-		}{runID, msgs, nonce()})
+		}{runID, msgs, nonce()}, runID)
 	}
 }
 
@@ -238,7 +238,7 @@ func handleDiffPage(deps Deps) http.HandlerFunc {
 			FromRef: result.FromRef, ToRef: result.ToRef,
 			Files: files, TotalAdded: added, TotalRemoved: removed,
 			ScopeViolations: result.ScopeViolations, WorkspacePaths: result.WorkspacePaths,
-		})
+		}, runID)
 	}
 }
 

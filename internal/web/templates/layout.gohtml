@@ -9,7 +9,7 @@
 <script src="/static/htmx.min.js"></script>
 <script src="/static/htmx-ext-sse.js"></script>
 </head>
-<body hx-headers='{"Sec-Fetch-Site":"same-origin"}'>
+<body hx-headers='{"Sec-Fetch-Site":"same-origin"}' data-run-id="{{.RunID}}">
 <header class="topbar">
   <a href="/" class="brand">kairos</a>
   <nav>
@@ -23,10 +23,27 @@
     <a href="/flows">flows</a>
     <a href="/doctor">doctor</a>
   </nav>
+  <span class="kbd-hint">press <kbd>:</kbd> for the command palette</span>
 </header>
 <main>
 {{.Body}}
 </main>
+
+<!-- The command palette (⌘K / Ctrl+K / ':') — L15-tui.md's own palette
+     (internal/tui/palette.go) resolved a run id, a screen name, or a verb,
+     with NO fuzzy matching and NO history (09-cli-and-tui.md's explicit
+     design constraint). app.js's palette logic is a deliberate, literal
+     port of resolvePalette/screenNames/paletteVerbs, not a reinterpretation
+     — see L23-webui-revamp.md. -->
+<div id="palette-overlay" class="palette-overlay" hidden>
+  <div class="palette-box" role="dialog" aria-label="command palette">
+    <input id="palette-input" type="text" autocomplete="off" spellcheck="false"
+      placeholder="a run id, a page name, or a verb — enter to go, esc to cancel">
+    <p class="palette-hint" id="palette-status"></p>
+  </div>
+</div>
+<p id="kbd-status" class="kbd-status" aria-live="polite"></p>
+
 <script src="/static/app.js"></script>
 </body>
 </html>

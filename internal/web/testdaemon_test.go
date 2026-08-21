@@ -33,6 +33,20 @@ type fakeDaemon struct {
 	compareErr    error
 	sources       []cli.Source
 	costResp      cli.CostResponse
+	cancelCalls   []cancelCall
+	cancelErr     error
+	forkCalls     []forkCall
+	forkErr       error
+	forkResult    cli.ForkResult
+	pauseCalls    []string
+	pauseErr      error
+}
+
+type cancelCall struct{ RunID, Reason string }
+type forkCall struct {
+	RunID      string
+	AtSequence int
+	AllowDrift bool
 }
 
 type approveCall struct{ RunID, NodeID, Decision, Reason, TypedWord string }
@@ -94,6 +108,41 @@ func newFakeDaemon(t *testing.T) (*fakeDaemon, string) {
 	})
 	mux.HandleFunc("GET /cost", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(fd.costResp)
+	})
+	mux.HandleFunc("POST /runs/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Reason string }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		fd.cancelCalls = append(fd.cancelCalls, cancelCall{r.PathValue("id"), req.Reason})
+		if fd.cancelErr != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "invariant_violation", "message": fd.cancelErr.Error()}})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("POST /runs/{id}/fork", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			AtSequence int
+			AllowDrift bool
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		fd.forkCalls = append(fd.forkCalls, forkCall{r.PathValue("id"), req.AtSequence, req.AllowDrift})
+		if fd.forkErr != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "invariant_violation", "message": fd.forkErr.Error()}})
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(fd.forkResult)
+	})
+	mux.HandleFunc("POST /sources/{id}/pause", func(w http.ResponseWriter, r *http.Request) {
+		fd.pauseCalls = append(fd.pauseCalls, r.PathValue("id"))
+		if fd.pauseErr != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "invariant_violation", "message": fd.pauseErr.Error()}})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("GET /runs/{a}/compare/{b}", func(w http.ResponseWriter, r *http.Request) {
 		if fd.compareErr != nil {

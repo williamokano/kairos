@@ -1,6 +1,40 @@
 {{define "run"}}
 <h1>{{.State.ID}} <span class="status">{{.State.Status}}</span></h1>
 
+<section class="danger-zone">
+  <button type="button" data-open-dialog="cancel-dialog">⏹ cancel</button>
+  <button type="button" data-open-dialog="fork-dialog">⑃ fork</button>
+
+  <dialog id="cancel-dialog" class="confirm-dialog">
+    <form hx-post="/runs/{{.State.ID}}/cancel" hx-target="#mutation-result" hx-swap="innerHTML" data-confirm-target="{{.State.ID}}">
+      <h2>Cancel {{id .State.ID}}?</h2>
+      <p>Every applied effect this run has already made is compensated automatically —
+      there is no partial-cancel. This cannot be undone.</p>
+      <label>reason <input type="text" name="reason" required></label>
+      <label>type <code>{{.State.ID}}</code> to confirm
+        <input type="text" name="confirm" pattern="{{.State.ID}}" autocomplete="off" required>
+      </label>
+      <button type="submit" data-confirm-submit disabled>cancel this run</button>
+      <button type="button" data-close-dialog>never mind</button>
+    </form>
+  </dialog>
+
+  <dialog id="fork-dialog" class="confirm-dialog">
+    <form hx-post="/runs/{{.State.ID}}/fork" hx-target="#mutation-result" hx-swap="innerHTML" data-confirm-target="{{.State.ID}}">
+      <h2>Fork {{id .State.ID}}?</h2>
+      <p>Copies the reasoning exactly; restores the workspace approximately.</p>
+      <label>at sequence (0 = latest) <input type="number" name="atSequence" value="0" min="0"></label>
+      <label><input type="checkbox" name="allowDrift"> allow drift (proceed without an exact workspace snapshot)</label>
+      <label>type <code>{{.State.ID}}</code> to confirm
+        <input type="text" name="confirm" pattern="{{.State.ID}}" autocomplete="off" required>
+      </label>
+      <button type="submit" data-confirm-submit disabled>fork this run</button>
+      <button type="button" data-close-dialog>never mind</button>
+    </form>
+  </dialog>
+  <div id="mutation-result"></div>
+</section>
+
 <div class="run-detail">
   <section class="timeline">
     <h2>Nodes</h2>

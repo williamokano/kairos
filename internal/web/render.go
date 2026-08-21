@@ -104,7 +104,15 @@ func parseAll() (*template.Template, error) {
 // one global namespace across every file matched by the same ParseGlob and
 // so cannot hold N independent per-page bodies at once) — a deliberate,
 // documented choice over the block-inheritance idiom, not an oversight.
-func renderPage(w http.ResponseWriter, title, name string, data any) {
+// renderPage's optional trailing runID is the current page's run context,
+// if any — rendered onto <body data-run-id> so app.js's keyboard model can
+// answer "is there an active run here" (the same conditional 'l'/'c'
+// bindings the TUI's own handleRunInspectorKey/global 'l' binding apply:
+// see keys.go's `if m.runInspector.runID != ""`) without the DOM-scraping
+// or per-page JS wiring a less general mechanism would need. Omitted
+// entirely (zero-value "") on pages with no single associated run (home,
+// runs list, doctor, findings, and so on).
+func renderPage(w http.ResponseWriter, title, name string, data any, runID ...string) {
 	t, err := templates()
 	if err != nil {
 		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
@@ -115,11 +123,16 @@ func renderPage(w http.ResponseWriter, title, name string, data any) {
 		http.Error(w, "render error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	var rid string
+	if len(runID) > 0 {
+		rid = runID[0]
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := t.ExecuteTemplate(w, "layout", struct {
 		Title string
 		Body  template.HTML
-	}{Title: title, Body: template.HTML(body.String())}); err != nil { //nolint:gosec // body is our own already-escaped template output, not raw user input
+		RunID string
+	}{Title: title, Body: template.HTML(body.String()), RunID: rid}); err != nil { //nolint:gosec // body is our own already-escaped template output, not raw user input
 		http.Error(w, "render error: "+err.Error(), http.StatusInternalServerError)
 	}
 }

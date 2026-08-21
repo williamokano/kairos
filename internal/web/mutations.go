@@ -4,20 +4,32 @@ import (
 	"context"
 	"html"
 	"net/http"
+	"strconv"
 
 	"github.com/williamokano/kairos/internal/cli"
 )
 
-// registerMutations wires 10-webui.md's nine mutating routes' daemon-side
-// operations that this pass implements: start a run, answer a decision,
-// post a conversation message. cancel/fork/say/source-pause are named in
-// the route map but deferred — see L20-webui.md's Future work; the
-// underlying cli.Client methods already exist (L18/L14/L16), so wiring
-// them is presentation work, not new daemon capability.
+// registerMutations wires 10-webui.md's mutating routes' daemon-side
+// operations. L20-webui.md's original pass built start/answer/message
+// only, naming cancel/fork/say/source-pause as deferred. This pass
+// (L23-webui-revamp.md) closes cancel/fork/source-pause: each dialog
+// requires a server-enforced typed confirmation — POSTing straight to
+// these routes without the exact matching confirm field is rejected with
+// 422, the identical "client-side gating is a UX aid, the server decides"
+// discipline the decision page's typed-word check already established
+// (see handleAnswerDecision's doc comment). "say" (injecting a message
+// into a LIVE session mid-execution, distinct from conversation send,
+// which already exists and is wired) has no daemon capability anywhere in
+// this tree — see L23-webui-revamp.md's Documented decisions for why it
+// stays unbuilt rather than inventing new engine/actor infrastructure for
+// it under a "web UI dialogs" document.
 func registerMutations(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("POST /runs", handleCreateRun(deps))
 	mux.HandleFunc("POST /t/{runID}/{nodeID}/answer", handleAnswerDecision(deps))
 	mux.HandleFunc("POST /c/{runID}/messages", handlePostMessage(deps))
+	mux.HandleFunc("POST /runs/{id}/cancel", handleCancelRun(deps))
+	mux.HandleFunc("POST /runs/{id}/fork", handleForkRun(deps))
+	mux.HandleFunc("POST /sources/{id}/pause", handlePauseSource(deps))
 }
 
 func handleCreateRun(deps Deps) http.HandlerFunc {
@@ -75,6 +87,105 @@ func handleAnswerDecision(deps Deps) http.HandlerFunc {
 			return
 		}
 		_, _ = w.Write([]byte(`<div class="decision-answered">answered — <a href="/runs/` + runID + `">back to run</a></div>`))
+	}
+}
+
+// requireTypedConfirm is the server-side half of every destructive web
+// dialog's anti-rubber-stamp discipline: the form's hidden/typed
+// "confirm" field must equal want exactly, or the request is rejected —
+// mirroring handleAnswerDecision's typed-word check (both ultimately
+// enforce "the client cannot get through by skipping its own dialog").
+// Unlike the decision page's typedWord (checked engine-side, against
+// engine state), this check is purely a web-layer invariant: cancel/fork/
+// source-pause have no engine-level typed-confirm concept of their own
+// (neither the CLI nor the TUI's own y/n prompt for x/f/Q requires one —
+// see 09-cli-and-tui.md's keys.go comment), so this is real, new,
+// web-mutation-layer enforcement, not a relaxed copy of an existing check.
+func requireTypedConfirm(w http.ResponseWriter, r *http.Request, want string) bool {
+	if r.PostForm.Get("confirm") == want {
+		return true
+	}
+	w.WriteHeader(http.StatusUnprocessableEntity)
+	_, _ = w.Write([]byte(`<p class="error">confirmation text did not match — nothing was done</p>`))
+	return false
+}
+
+// handleCancelRun is the web dialog for `kairos cancel` (internal/api's
+// new POST /runs/{id}/cancel — see internal/engine/cancel.go). Compensation
+// of applied effects, if any, is automatic and unconditional (shard.go),
+// not a checkbox this form offers, because there is nothing to toggle.
+func handleCancelRun(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		runID := r.PathValue("id")
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad form: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !requireTypedConfirm(w, r, runID) {
+			return
+		}
+		reason := r.PostForm.Get("reason")
+		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+		defer cancel()
+		if err := deps.Client.Cancel(ctx, runID, reason); err != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`<p class="error">` + html.EscapeString(err.Error()) + `</p>`))
+			return
+		}
+		_, _ = w.Write([]byte(`<div class="mutation-done">cancelled — <a href="/runs/` + runID + `">back to run</a></div>`))
+	}
+}
+
+// handleForkRun is the web dialog for `kairos fork` (internal/cli.Client.Fork
+// already existed — L18 — this pass adds only the web presentation, per
+// L20-webui.md's original Future work entry). --allow-drift is an explicit
+// checkbox, never a default-on behavior, matching newForkCmd's own doc
+// comment ("no implicit-yes default").
+func handleForkRun(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		runID := r.PathValue("id")
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad form: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !requireTypedConfirm(w, r, runID) {
+			return
+		}
+		atSequence, _ := strconv.Atoi(r.PostForm.Get("atSequence"))
+		allowDrift := r.PostForm.Get("allowDrift") == "on"
+		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+		defer cancel()
+		result, err := deps.Client.Fork(ctx, runID, atSequence, nil, allowDrift)
+		if err != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`<p class="error">` + html.EscapeString(err.Error()) + `</p>`))
+			return
+		}
+		_, _ = w.Write([]byte(`<div class="mutation-done">forked — <a href="/runs/` + result.NewRunID + `">` + result.NewRunID + `</a></div>`))
+	}
+}
+
+// handlePauseSource is the web dialog for `kairos src pause`
+// (internal/cli.Client.PauseSource already existed — L16 — this pass adds
+// only the web presentation).
+func handlePauseSource(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad form: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !requireTypedConfirm(w, r, id) {
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+		defer cancel()
+		if err := deps.Client.PauseSource(ctx, id); err != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`<p class="error">` + html.EscapeString(err.Error()) + `</p>`))
+			return
+		}
+		_, _ = w.Write([]byte(`<div class="mutation-done">paused — <a href="/sources">back to sources</a></div>`))
 	}
 }
 

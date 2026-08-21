@@ -124,6 +124,7 @@ func newRootCmd(app *appCtx) *cobra.Command {
 	root.AddCommand(newWaiverCmd(app))
 	root.AddCommand(newHumanTasksCmd(app))
 	root.AddCommand(newForkCmd(app))
+	root.AddCommand(newCancelCmd(app))
 	root.AddCommand(newCompareCmd(app))
 	root.AddCommand(newDiffCmd(app))
 	root.AddCommand(newDoctorCmd(app))
