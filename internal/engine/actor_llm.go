@@ -10,6 +10,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
+	"github.com/williamokano/kairos/internal/conversation"
 	"github.com/williamokano/kairos/internal/domain"
 	"github.com/williamokano/kairos/internal/executor/local"
 	"github.com/williamokano/kairos/internal/registry"
@@ -92,7 +93,8 @@ func (e *Engine) dispatchLLMActor(ctx context.Context, nd registry.NodeDef, c do
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
-		e.reapLLM(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, sessionID, started.PID, nd.Workspace == registry.WorkspaceWrite)
+		e.reapLLM(ctx, c, actorKind, workDir, dir, outputPath, schemaPath, sessionID, started.PID, nd.Workspace == registry.WorkspaceWrite,
+			nd.PostOutputToConversation, nd.ConversationRunOverride)
 	}()
 	return nil
 }
@@ -108,6 +110,20 @@ func (e *Engine) dispatchLLMActor(ctx context.Context, nd registry.NodeDef, c do
 // the resume. SessionAffinity == "" or "execution" always mints fresh —
 // per-attempt isolation is the point of that setting.
 func (e *Engine) resolveSession(ctx context.Context, nd registry.NodeDef, c domain.CmdStartNode, workDir string) (sessionID, resumeOf string, err error) {
+	// nd.ResumeSessionID is `kairos do`'s continuation escape hatch: a
+	// prior session lives on a DIFFERENT run (a fresh run is synthesized
+	// per chat turn — see adhoc.go's doc comment for why), so the normal
+	// same-run/same-node priorSession lookup below can never find it —
+	// it only ever scans this run's own event stream. Trust the explicit
+	// declaration outright rather than re-deriving it: it was set
+	// moments ago by the same request that's about to dispatch this
+	// node, not stale author-time config, and if the resume target has
+	// genuinely gone (workspace deleted, process long dead) the LLM
+	// CLI's own --resume will fail loudly and the node fails honestly —
+	// exactly AGENTS.md rule 1's "no silent failure," not a new one.
+	if nd.ResumeSessionID != "" {
+		return nd.ResumeSessionID, nd.ResumeSessionID, nil
+	}
 	if c.Attempt <= 1 || nd.SessionAffinity == "" || nd.SessionAffinity == "execution" {
 		return newSessionID(), "", nil
 	}
@@ -230,7 +246,7 @@ func (e *Engine) startLLM(ctx context.Context, c domain.CmdStartNode, actorKind,
 // top-level attempt, possibly on a mutated actor) are NOT this function's
 // job: Stage 4 is domain's own existing retry ladder, reached simply by
 // this function reporting SchemaValid: false like any other actor.
-func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, actorKind, workDir, dir, outputPath, schemaPath, sessionID string, pid int, isWorkspaceWrite bool) {
+func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, actorKind, workDir, dir, outputPath, schemaPath, sessionID string, pid int, isWorkspaceWrite, postToConversation bool, conversationRunOverride string) {
 	defer e.releaseAndDrain(ctx, c.ExecID)
 	defer e.collectLogs(ctx, c.RunID, c.NodeID, c.ExecID, dir)
 
@@ -280,7 +296,42 @@ func (e *Engine) reapLLM(ctx context.Context, c domain.CmdStartNode, actorKind, 
 		RunID: c.RunID, NodeID: c.NodeID, ExecID: c.ExecID, SchemaValid: valid, Output: raw, OutputRef: ref,
 	}); err == nil && valid {
 		e.maybeSnapshotWorkspace(ctx, isWorkspaceWrite, c.RunID, c.NodeID, c.ExecID)
+		if postToConversation {
+			target := conversationRunOverride
+			if target == "" {
+				target = c.RunID
+			}
+			if err := conversation.AppendMessage(ctx, e.store, target, "assistant", extractReplyText(raw)); err != nil {
+				e.log.Error("posting node output to conversation", "runID", c.RunID, "target", target, "error", err)
+			}
+		}
 	}
+}
+
+// extractReplyText turns a node's JSON output into chat-thread prose —
+// `kairos do`'s narrow heuristic (result -> message -> text -> the whole
+// object, stringified), not a general schema-to-prose renderer: the
+// synthesized ad hoc definition always declares {result: "string!"}, so
+// the first branch is what actually fires in practice; the fallbacks
+// exist so a hand-authored workflow that sets postOutputToConversation
+// against a differently-shaped schema still gets SOMETHING readable
+// rather than an empty message.
+func extractReplyText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err == nil {
+		for _, key := range []string{"result", "message", "text"} {
+			if v, ok := fields[key]; ok {
+				var s string
+				if err := json.Unmarshal(v, &s); err == nil {
+					return s
+				}
+			}
+		}
+	}
+	return string(raw)
 }
 
 // repairTurn runs the CLI exactly once more, in the same workDir, with

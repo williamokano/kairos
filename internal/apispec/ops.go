@@ -27,6 +27,7 @@ type Op struct {
 // fails until both the route and the verb exist.
 var Ops = []Op{
 	{Method: "POST", Path: "/runs", CLIVerb: "run", WebPath: "POST /runs"},
+	{Method: "POST", Path: "/do", CLIVerb: "do", WebPath: "POST /chat"},
 	{Method: "GET", Path: "/runs", CLIVerb: "ls", WebPath: "GET /runs"},
 	{Method: "GET", Path: "/runs/{id}", CLIVerb: "show", WebPath: "GET /runs/{id}"},
 	{Method: "GET", Path: "/runs/{id}/conversation", CLIVerb: "conversation show", WebPath: "GET /c/{runID}"},

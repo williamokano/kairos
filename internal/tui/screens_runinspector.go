@@ -22,6 +22,7 @@ func (m Model) handleRunInspectorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.navigate(ScreenConversation)
 		m.conversation.runID = m.runInspector.runID
+		m.conversation.isAdHoc = false
 		return m, m.fetchConversation(m.runInspector.runID)
 	case "l":
 		m.navigate(ScreenLogs)

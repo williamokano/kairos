@@ -150,12 +150,14 @@ func serve(parentCtx context.Context) error {
 	defer triggers.Stop()
 
 	deps := api.Deps{
-		Store:        store,
-		Engine:       eng,
-		DoctorChecks: toolchainChecks(),
-		Deferred:     []string{"agent auth (L08)", "network egress (later)"},
-		StartedAt:    time.Now(),
-		DailyUSD:     cfg.DailyUSD,
+		Store:          store,
+		Engine:         eng,
+		DoctorChecks:   toolchainChecks(),
+		Deferred:       []string{"agent auth (L08)", "network egress (later)"},
+		StartedAt:      time.Now(),
+		DailyUSD:       cfg.DailyUSD,
+		Home:           cfg.Home,
+		DefaultDoActor: cfg.DefaultDoActor,
 	}
 
 	ln, err := api.Listen(sockPath)

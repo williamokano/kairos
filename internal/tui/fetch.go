@@ -51,6 +51,14 @@ type approveResultMsg struct {
 
 type conversationSentMsg struct{ err error }
 
+// doResultMsg is the Home composer's real result — `kairos do` closing
+// L15-tui.md's own Future work stub (submitComposer used to be
+// intentionally fake; see keys.go's doc comment on the real version).
+type doResultMsg struct {
+	resp cli.DoResponse
+	err  error
+}
+
 // refreshCmd re-fetches whatever the current screen needs. This is the
 // polling stand-in for live SSE push (doc.go).
 func (m Model) refreshCmd() tea.Cmd {

@@ -147,6 +147,10 @@ func defaultNode(yn yamlNode, rn raw) (NodeDef, error) {
 		With:            yn.With,
 		Optional:        yn.Optional,
 		SideEffectFree:  yn.SideEffectFree,
+
+		PostOutputToConversation: yn.PostOutputToConversation,
+		ConversationRunOverride:  yn.ConversationRunOverride,
+		ResumeSessionID:          yn.ResumeSessionID,
 	}
 	if nd.Workspace == "" {
 		if yn.Actor == "spawn" {

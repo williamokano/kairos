@@ -46,6 +46,15 @@ type yamlNode struct {
 	// builtin Provider. Values are strings only; dynamic input-binding
 	// (from an upstream node's output) is Future work.
 	With map[string]string `json:"with"`
+
+	// PostOutputToConversation, ConversationRunOverride, and
+	// ResumeSessionID exist for `kairos do`'s ad hoc chat synthesis
+	// (internal/registry's SynthesizeAdHoc) — narrow, non-general
+	// escape hatches, not documented workflow-author features. See
+	// SynthesizeAdHoc's doc comment for why they're shaped this way.
+	PostOutputToConversation bool   `json:"postOutputToConversation"`
+	ConversationRunOverride  string `json:"conversationRunOverride"`
+	ResumeSessionID          string `json:"resumeSessionId"`
 }
 
 type yamlResources struct {

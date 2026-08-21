@@ -6,7 +6,7 @@ type homeState struct {
 	runs    []cli.RunSummary
 	cursor  int
 	err     error
-	compose string // INPUT-mode composer text, "kairos do"-shaped (fetch/dispatch not wired — see Future work)
+	compose string // INPUT-mode composer text — submitComposer (keys.go) sends it via kairos do
 }
 
 type conversationState struct {
@@ -14,6 +14,17 @@ type conversationState struct {
 	messages []cli.ConversationMessage
 	err      error
 	reply    string
+	// isAdHoc is true only when this Conversation was reached via kairos
+	// do (submitComposer -> doResultMsg) — a real wait: conversation
+	// workflow's reply box (handleConversationInputKey) posts a plain
+	// message and waits for the SAME node to resolve; an ad hoc chat's
+	// run is already terminal after turn one, so its reply box instead
+	// calls Do(text, continueRunId: runID) for a real new LLM turn with
+	// native session resume (see internal/api/do.go's handler doc
+	// comment). Reset to false on every OTHER path into this screen
+	// (screens_runinspector.go's 'c' key) so a stale true never survives
+	// into an unrelated, real conversation.
+	isAdHoc bool
 }
 
 type runInspectorState struct {

@@ -27,6 +27,13 @@ type Config struct {
 	// actor nodes invoke (engine.Config.LLMBinary, L08). Empty means no
 	// llm-kind node can run.
 	LLMBinary string
+	// DefaultDoActor is the actor kind `kairos do`/the web chat/the TUI
+	// composer synthesize an ad hoc single-node workflow against
+	// (registry.SynthesizeAdHoc's AdHocOptions.Actor) — any real actor
+	// kind this engine dispatches, never hardcoded to one CLI. Defaults
+	// to "claude": genuinely installed, authenticated, and proven working
+	// in this environment (L22-harness-integration.md's real smoke test).
+	DefaultDoActor string
 	// LLMConfigDir is the pre-authenticated config directory claude/codex
 	// actor nodes read credentials from (engine.Config.LLMConfigDir,
 	// L22-harness-integration.md) — passed to the child as
@@ -170,10 +177,16 @@ func Load() (Config, error) {
 		webAddr = "127.0.0.1:7717"
 	}
 
+	defaultDoActor := v.GetString("DEFAULT_DO_ACTOR")
+	if defaultDoActor == "" {
+		defaultDoActor = "claude"
+	}
+
 	return Config{
 		Home:                    home,
 		WorkspaceRepo:           v.GetString("WORKSPACE_REPO"),
 		LLMBinary:               v.GetString("LLM_BINARY"),
+		DefaultDoActor:          defaultDoActor,
 		LLMConfigDir:            v.GetString("LLM_CONFIG_DIR"),
 		AdmissionNodeSlots:      nodeSlots,
 		AdmissionMaxQueued:      maxQueued,

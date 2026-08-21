@@ -1,0 +1,7 @@
+{{define "frag/chatmessages"}}
+{{range .}}
+<div class="message"><strong>{{.Role}}</strong> {{.Text}}</div>
+{{else}}
+<p class="empty">Nothing yet.</p>
+{{end}}
+{{end}}

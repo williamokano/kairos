@@ -167,6 +167,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.fetchConversation(m.conversation.runID)
+
+	case doResultMsg:
+		if msg.err != nil {
+			m.statusLine = "kairos do failed: " + msg.err.Error()
+			return m, nil
+		}
+		m.navigate(ScreenConversation)
+		m.conversation.runID = msg.resp.ConversationRunID
+		m.conversation.isAdHoc = true
+		m.statusLine = "started " + msg.resp.RunID
+		return m, m.fetchConversation(msg.resp.ConversationRunID)
 	}
 
 	return m, nil

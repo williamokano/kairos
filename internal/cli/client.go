@@ -128,6 +128,27 @@ func (c *Client) CreateRun(ctx context.Context, definitionPath string, params js
 	return out, err
 }
 
+// DoResponse mirrors internal/api's doResponse.
+type DoResponse struct {
+	RunID             string `json:"runId"`
+	ConversationRunID string `json:"conversationRunId"`
+}
+
+// Do calls POST /do — `kairos do`/the web chat/the TUI composer's single
+// entrypoint for a free-text ad hoc task, closing 09-cli-and-tui.md's/
+// L15-tui.md's named-but-unbuilt "kairos do" gap. continueRunID is empty
+// for a fresh chat; non-empty continues an existing one with a real
+// native --resume of the prior turn's session (see internal/api/do.go's
+// handler doc comment for the full mechanics).
+func (c *Client) Do(ctx context.Context, text, continueRunID string) (DoResponse, error) {
+	var out DoResponse
+	err := c.do(ctx, http.MethodPost, "/do", map[string]any{
+		"text":          text,
+		"continueRunId": continueRunID,
+	}, &out)
+	return out, err
+}
+
 // RunSummary mirrors internal/eventstore.RunSummary's JSON shape.
 type RunSummary struct {
 	RunID     string `json:"RunID"`

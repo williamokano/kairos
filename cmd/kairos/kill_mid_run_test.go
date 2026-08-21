@@ -25,6 +25,12 @@ type daemonHarness struct {
 	home     string
 	sockPath string
 	cmd      *exec.Cmd
+	// extraEnv is appended to the spawned `kairos serve` process's
+	// environment, on top of the test binary's own os.Environ() — e.g.
+	// KAIROS_LLM_BINARY pointed at a fake CLI script, so a test never
+	// mutates process-global env (which would race any other test
+	// running in parallel).
+	extraEnv []string
 }
 
 func newDaemonHarness(t *testing.T, bin, home string) *daemonHarness {
@@ -41,7 +47,7 @@ func newDaemonHarness(t *testing.T, bin, home string) *daemonHarness {
 func (h *daemonHarness) start(t *testing.T, timeout time.Duration) {
 	t.Helper()
 	cmd := exec.Command(h.bin, "serve")
-	cmd.Env = append(os.Environ(), "KAIROS_HOME="+h.home)
+	cmd.Env = append(append(os.Environ(), "KAIROS_HOME="+h.home), h.extraEnv...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr

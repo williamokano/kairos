@@ -136,6 +136,19 @@ func (m Model) handleConversationInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		runID := m.conversation.runID
+		if m.conversation.isAdHoc {
+			// A real wait: conversation node's run stays non-terminal
+			// while it waits; an ad hoc chat's run is already terminal
+			// after turn one, so continuing it needs a genuinely NEW
+			// LLM turn, not a plain message append — see
+			// conversationState.isAdHoc's doc comment.
+			return m, func() tea.Msg {
+				ctx, cancel := withTimeout(m.ctx)
+				defer cancel()
+				resp, err := m.client.Do(ctx, text, runID)
+				return doResultMsg{resp: resp, err: err}
+			}
+		}
 		return m, func() tea.Msg {
 			ctx, cancel := withTimeout(m.ctx)
 			defer cancel()
@@ -153,15 +166,26 @@ func (m Model) handleConversationInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// submitComposer is intentionally a stub: 09-cli-and-tui.md's `kairos do`
-// (start a run from prose) has no daemon-side endpoint yet — internal/api
-// only accepts POST /runs with a definitionPath, not free text. Recorded
-// honestly as Future work rather than faked.
+// submitComposer calls the real `kairos do` endpoint (POST /do,
+// internal/api/do.go) — the stub this used to be (L15-tui.md's own
+// Future work item) is closed: the TUI is now the SAME third client of
+// that one entrypoint the web chat page and the CLI verb already are.
+// Navigation to the Conversation screen happens once doResultMsg lands
+// (model.go), not here — this only fires the request.
 func (m Model) submitComposer() (tea.Model, tea.Cmd) {
+	text := m.home.compose
 	m.mode = ModeNAV
-	m.statusLine = "starting a run from prose (kairos do) has no daemon endpoint yet — see L15-tui.md's Future work"
 	m.home.compose = ""
-	return m, nil
+	if text == "" {
+		return m, nil
+	}
+	m.statusLine = "starting…"
+	return m, func() tea.Msg {
+		ctx, cancel := withTimeout(m.ctx)
+		defer cancel()
+		resp, err := m.client.Do(ctx, text, "")
+		return doResultMsg{resp: resp, err: err}
+	}
 }
 
 func (m Model) dispatchScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

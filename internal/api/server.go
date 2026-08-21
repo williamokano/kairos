@@ -44,12 +44,19 @@ type Deps struct {
 	// cost route reads it directly rather than asking the engine, since
 	// the cap is configuration, not engine state.
 	DailyUSD float64
+	// Home is $KAIROS_HOME — POST /do (kairos do) writes ad hoc
+	// single-node definitions under Home/adhoc/ via registry.SynthesizeAdHoc.
+	Home string
+	// DefaultDoActor is cfg.DefaultDoActor — the actor kind POST /do
+	// synthesizes its ad hoc node against.
+	DefaultDoActor string
 }
 
 // NewMux builds the daemon's route table.
 func NewMux(deps Deps) *http.ServeMux {
 	mux := http.NewServeMux()
 	registerRunRoutes(mux, deps)
+	registerDoRoutes(mux, deps)
 	registerConversationRoutes(mux, deps)
 	registerHumanRoutes(mux, deps)
 	registerEffectsRoutes(mux, deps)

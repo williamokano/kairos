@@ -41,7 +41,12 @@ type fakeDaemon struct {
 	pauseCalls    []string
 	pauseErr      error
 	createRunErr  error
+	doCalls       []doCall
+	doErr         error
+	doResult      cli.DoResponse
 }
+
+type doCall struct{ Text, ContinueRunID string }
 
 type cancelCall struct{ RunID, Reason string }
 type forkCall struct {
@@ -93,6 +98,17 @@ func newFakeDaemon(t *testing.T) (*fakeDaemon, string) {
 	})
 	mux.HandleFunc("POST /runs/{id}/conversation/messages", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("POST /do", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Text, ContinueRunID string }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		fd.doCalls = append(fd.doCalls, doCall{req.Text, req.ContinueRunID})
+		if fd.doErr != nil {
+			http.Error(w, fd.doErr.Error(), http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(fd.doResult)
 	})
 	mux.HandleFunc("POST /runs/{id}/approve", func(w http.ResponseWriter, r *http.Request) {
 		var req struct{ NodeID, Decision, Reason, TypedWord string }

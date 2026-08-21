@@ -52,7 +52,7 @@ func sseTestHTTPClient(sockPath string) *http.Client {
 // stream before returning — mirroring cmd/kairos's own daemonHarness
 // (kill_mid_run_test.go), duplicated narrowly here rather than shared
 // across packages for one helper.
-func startRealDaemon(t *testing.T, bin, home string) (sockPath string, cleanup func()) {
+func startRealDaemon(t *testing.T, bin, home string, extraEnv ...string) (sockPath string, cleanup func()) {
 	t.Helper()
 	sockPath = filepath.Join(home, "daemon.sock")
 
@@ -66,7 +66,7 @@ func startRealDaemon(t *testing.T, bin, home string) (sockPath string, cleanup f
 	// ("address already in use") — latent until this package also started
 	// booting a real daemon. This test doesn't use the web UI at all, so
 	// an ephemeral port sidesteps the collision entirely.
-	cmd.Env = append(os.Environ(), "KAIROS_HOME="+home, "KAIROS_WEB_ADDR=127.0.0.1:0")
+	cmd.Env = append(append(os.Environ(), "KAIROS_HOME="+home, "KAIROS_WEB_ADDR=127.0.0.1:0"), extraEnv...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr

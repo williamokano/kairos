@@ -181,6 +181,22 @@ type NodeDef struct {
 	// RestartPolicy is resolved from SideEffectFree (or an explicit
 	// author override) at defaulting time — see RestartPolicy's doc.
 	RestartPolicy RestartPolicy
+
+	// PostOutputToConversation, ConversationRunOverride, and
+	// ResumeSessionID back `kairos do`'s ad hoc chat feature — see
+	// SynthesizeAdHoc's doc comment (adhoc.go). PostOutputToConversation:
+	// when a node's real output arrives, also append it as an
+	// "assistant" message to a Conversation stream (its own run's by
+	// default, or ConversationRunOverride's if set — continuing a chat
+	// spins up a NEW run per turn whose reply should land in the
+	// ORIGINAL run's thread, not its own). ResumeSessionID, when
+	// non-empty, is used directly as the LLM actor's native --resume
+	// target, bypassing resolveSession's normal same-run/same-node prior-
+	// attempt derivation (which cannot span runs) — see
+	// engine.resolveSession's doc comment for the exact branch.
+	PostOutputToConversation bool
+	ConversationRunOverride  string
+	ResumeSessionID          string
 }
 
 // RestartPolicy names how the engine treats a NodeExecution the log says
