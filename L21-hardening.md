@@ -236,4 +236,4 @@ Full-suite `-race` surfaced the same two pre-existing, load-sensitive flakes not
 on repeat runs immediately after, unrelated to this item's changes (which touch neither adopt nor
 spawn/join code).
 
-Committed as `<pending>`.
+Committed as `f8dbb8d`.
