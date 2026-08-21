@@ -1,0 +1,27 @@
+{{define "gates"}}
+<h1>Gates</h1>
+<p class="note">Fires, failures, and waivers are computed from every real constraint.evaluated/waiver.grant
+event this daemon has recorded — there is no static "declared gates" registry (a flow's gates live only
+in its own YAML, read fresh at run time), so a gate that has never fired simply does not appear here.</p>
+{{if .FetchErr}}
+  <p class="error">loading gates: {{.FetchErr}}</p>
+{{else if eq (len .Gates) 0}}
+  <p class="empty">No gate evaluations recorded yet.</p>
+{{else}}
+<table>
+  <thead><tr><th>gate</th><th>kind</th><th>fires</th><th>failures</th><th>catch rate</th><th>waivers</th></tr></thead>
+  <tbody>
+  {{range .Gates}}
+  <tr>
+    <td><a href="/findings?gate={{.GateID}}&amp;state=all">{{.GateID}}</a></td>
+    <td>{{.Kind}}</td>
+    <td>{{.Fires}}</td>
+    <td>{{.Failures}}</td>
+    <td>{{if .Fires}}{{.CatchRatePct}}%{{else}}—{{end}}</td>
+    <td>{{.Waivers}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}

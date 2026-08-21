@@ -1,0 +1,7 @@
+{{define "frag/causalnode"}}
+{{range .}}
+<li><strong>{{.Env.GlobalSeq}}</strong> {{.Env.EventType}} <span class="stream">({{id .Env.StreamID}})</span>
+  {{if .Children}}<ul>{{template "frag/causalnode" .Children}}</ul>{{end}}
+</li>
+{{end}}
+{{end}}

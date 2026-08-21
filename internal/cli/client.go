@@ -190,6 +190,24 @@ func (c *Client) Doctor(ctx context.Context) (DoctorResponse, error) {
 	return out, err
 }
 
+// CostResponse mirrors internal/api's costResponse — the daemon's one
+// real spend-adjacent number (L07's admission daily-spend cap tracker,
+// an ESTIMATE, never a reconciliation against actual spend; see NL-30).
+type CostResponse struct {
+	Day           string  `json:"day"`
+	SpentUSD      float64 `json:"spentUsd"`
+	SpendRecorded bool    `json:"spendRecorded"`
+	DailyCapUSD   float64 `json:"dailyCapUsd"`
+}
+
+// Cost fetches today's admission daily-spend estimate and cap — `kairos
+// cost` / the web `/cost` page.
+func (c *Client) Cost(ctx context.Context) (CostResponse, error) {
+	var out CostResponse
+	err := c.do(ctx, http.MethodGet, "/cost", nil, &out)
+	return out, err
+}
+
 type DBVerifyResponse struct {
 	MismatchedRunIDs []string `json:"mismatchedRunIds"`
 }
@@ -417,6 +435,13 @@ type Source struct {
 	Enabled         bool   `json:"enabled"`
 	Health          string `json:"health"`
 	HealthReason    string `json:"healthReason,omitempty"`
+	// ConsecutiveErrors/LastPollAt/NextPollAt/Cursor: the web Sources
+	// page's own reason for existing (08-triggers.md: read back
+	// "verbatim") — mirrors internal/api's sourceResponse additions.
+	ConsecutiveErrors int     `json:"consecutiveErrors"`
+	LastPollAt        *string `json:"lastPollAt,omitempty"`
+	NextPollAt        *string `json:"nextPollAt,omitempty"`
+	Cursor            string  `json:"cursor,omitempty"`
 }
 
 func (c *Client) AddSource(ctx context.Context, id, kind, config, flow, project string, intervalSeconds int) (Source, error) {
@@ -454,6 +479,15 @@ type Envelope struct {
 	GlobalSeq int64           `json:"GlobalSeq"`
 	EventType string          `json:"EventType"`
 	Event     json.RawMessage `json:"Event"`
+	// Actor, CausationSeq, CorrelationID: added for the web UI's event log
+	// explorer (L23-webui-ops.md) — the causal tree it renders walks
+	// CausationSeq, which internal/events.Envelope has carried since L02
+	// but no client here had bothered decoding until a page actually
+	// needed it.
+	Actor         string `json:"Actor,omitempty"`
+	CausationSeq  *int64 `json:"CausationSeq,omitempty"`
+	CorrelationID string `json:"CorrelationID,omitempty"`
+	OccurredAt    string `json:"OccurredAt,omitempty"`
 }
 
 // Events fetches every historical envelope currently in streamID (or every

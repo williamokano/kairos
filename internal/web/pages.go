@@ -23,6 +23,13 @@ func registerPages(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /doctor", handleDoctorPage(deps))
 	mux.HandleFunc("GET /runs/{id}/diff", handleDiffPage(deps))
 	mux.HandleFunc("GET /compare", handleComparePage(deps))
+	mux.HandleFunc("GET /events", handleEventsPage(deps))
+	mux.HandleFunc("GET /findings", handleFindingsPage(deps))
+	mux.HandleFunc("GET /cost", handleCostPage(deps))
+	mux.HandleFunc("GET /gates", handleGatesPage(deps))
+	mux.HandleFunc("GET /sources", handleSourcesPage(deps))
+	mux.HandleFunc("GET /runners", handleRunnersPage(deps))
+	mux.HandleFunc("GET /flows", handleFlowsPage(deps))
 }
 
 type waitingItem struct{ RunID, NodeID string }

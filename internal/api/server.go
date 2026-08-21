@@ -39,6 +39,11 @@ type Deps struct {
 	DoctorChecks []DoctorCheck
 	Deferred     []string // doctor checks not yet implemented, named honestly rather than omitted
 	StartedAt    time.Time
+	// DailyUSD is cfg.DailyUSD (02-config.md's limits.dailyUSD), the same
+	// value internal/admission.Config.DailyUSD was constructed with — the
+	// cost route reads it directly rather than asking the engine, since
+	// the cap is configuration, not engine state.
+	DailyUSD float64
 }
 
 // NewMux builds the daemon's route table.
@@ -60,6 +65,7 @@ func NewMux(deps Deps) *http.ServeMux {
 	registerBackupRoute(mux, deps)
 	registerSourceRoutes(mux, deps)
 	registerLifecycleRoutes(mux, deps)
+	registerCostRoute(mux, deps)
 	return mux
 }
 

@@ -52,3 +52,29 @@ table.diff-split td { border: none; padding: 0 0.4rem; white-space: pre; vertica
 table.diff-split td.diff-lineno { width: 4ch; text-align: right; color: var(--muted); user-select: none; }
 table.diff-split td.diff-content { width: 50%; }
 .compare-table td, .compare-table th { text-align: left; }
+
+/* operations pages: events/findings/cost/gates/sources/runners/flows */
+.note { color: var(--muted); font-size: 0.85rem; }
+.filters { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; margin: 0.5rem 0 1rem; }
+.filters label { display: flex; flex-direction: column; font-size: 0.8rem; color: var(--muted); gap: 0.2rem; }
+.filters input, .filters select { font: inherit; padding: 0.2rem 0.4rem; }
+.causal-tree { border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; margin-top: 1rem; }
+.causal-tree ol.ancestry { list-style: none; padding-left: 0; }
+.causal-tree li.focus { font-weight: 600; }
+.causal-tree .stream, .causal-tree .causedby { color: var(--muted); font-size: 0.8rem; }
+.causal-tree pre.payload { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; overflow-x: auto; background: rgba(110,118,129,0.12); padding: 0.5rem; border-radius: 4px; }
+.causal-tree ul.descendants, .causal-tree ul.descendants ul { list-style: none; padding-left: 1.25rem; }
+/* Ancestry chain depth — a handful of fixed classes rather than an inline
+   style attribute, which this page's CSP (script-src 'self', no
+   unsafe-inline) would silently drop for style-src too. A causal chain
+   this deep within one run is already an unusual case; depths beyond 8
+   simply stop indenting further rather than growing the rule forever. */
+.causal-tree .depth-0 { margin-left: 0; }
+.causal-tree .depth-1 { margin-left: 1em; }
+.causal-tree .depth-2 { margin-left: 2em; }
+.causal-tree .depth-3 { margin-left: 3em; }
+.causal-tree .depth-4 { margin-left: 4em; }
+.causal-tree .depth-5 { margin-left: 5em; }
+.causal-tree .depth-6 { margin-left: 6em; }
+.causal-tree .depth-7 { margin-left: 7em; }
+.causal-tree .depth-8 { margin-left: 8em; }

@@ -155,6 +155,7 @@ func serve(parentCtx context.Context) error {
 		DoctorChecks: toolchainChecks(),
 		Deferred:     []string{"agent auth (L08)", "network egress (later)"},
 		StartedAt:    time.Now(),
+		DailyUSD:     cfg.DailyUSD,
 	}
 
 	ln, err := api.Listen(sockPath)

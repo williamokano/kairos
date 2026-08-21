@@ -1,0 +1,26 @@
+{{define "sources"}}
+<h1>Sources</h1>
+{{if .FetchErr}}
+  <p class="error">loading sources: {{.FetchErr}}</p>
+{{else if eq (len .Sources) 0}}
+  <p class="empty">No trigger sources configured.</p>
+{{else}}
+<table>
+  <thead><tr><th>id</th><th>kind</th><th>enabled</th><th>health</th><th>consecutive errors</th><th>last poll</th><th>next poll</th><th>cursor</th></tr></thead>
+  <tbody>
+  {{range .Sources}}
+  <tr>
+    <td>{{.ID}}</td>
+    <td>{{.Kind}}</td>
+    <td>{{if .Enabled}}yes{{else}}paused{{end}}</td>
+    <td>{{.Health}}{{if .HealthReason}} ({{.HealthReason}}){{end}}</td>
+    <td>{{.ConsecutiveErrors}}</td>
+    <td>{{if .LastPollAt}}{{relTime .LastPollAt}}{{else}}never{{end}}</td>
+    <td>{{if .NextPollAt}}{{.NextPollAt}}{{else}}—{{end}}</td>
+    <td>{{if .Cursor}}{{.Cursor}}{{else}}—{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}

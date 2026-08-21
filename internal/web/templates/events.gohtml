@@ -1,0 +1,57 @@
+{{define "events"}}
+<h1>Events</h1>
+<form method="get" action="/events" class="filters">
+  <label>stream <input type="text" name="stream" value="{{.StreamFilter}}" placeholder="run id"></label>
+  <label>type <input type="text" name="type" value="{{.TypeFilter}}" placeholder="e.g. constraint.evaluated"></label>
+  <label>seq &ge; <input type="number" name="after" value="{{if .AfterFilter}}{{.AfterFilter}}{{end}}"></label>
+  <button type="submit">filter</button>
+</form>
+{{if .FetchErr}}
+  <p class="error">loading events: {{.FetchErr}}</p>
+{{else if eq (len .Rows) 0}}
+  <p class="empty">No events match this filter.</p>
+{{else}}
+<table>
+  <thead><tr><th>seq</th><th>stream</th><th>type</th><th>actor</th><th>when</th><th></th></tr></thead>
+  <tbody>
+  {{range .Rows}}
+  <tr>
+    <td>{{.GlobalSeq}}</td>
+    <td>{{id .StreamID}}</td>
+    <td>{{.EventType}}</td>
+    <td>{{.Actor}}</td>
+    <td>{{relTime .OccurredAt}}</td>
+    <td><a href="/events?stream={{$.StreamFilter}}&amp;type={{$.TypeFilter}}&amp;after={{$.AfterFilter}}&amp;focus={{.GlobalSeq}}">causal tree</a></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+
+{{if .Focus}}
+<section class="causal-tree">
+  <h2>causal tree · event {{.Focus}}</h2>
+  {{if eq (len .Ancestry) 0}}
+    <p class="empty">event {{.Focus}} was not found in the currently loaded log.</p>
+  {{else}}
+  <ol class="ancestry">
+    {{range $i, $e := .Ancestry}}
+    <li class="{{if eq $e.GlobalSeq $.Focus}}focus {{end}}depth-{{$i}}">
+      <strong>{{$e.GlobalSeq}}</strong> {{$e.EventType}} <span class="stream">({{id $e.StreamID}})</span>
+      {{if $e.CausationSeq}}<span class="causedby">caused by {{$e.CausationSeq}}</span>{{end}}
+      {{if eq $e.GlobalSeq $.Focus}}
+        <pre class="payload">{{printf "%s" $e.Event}}</pre>
+      {{end}}
+    </li>
+    {{end}}
+  </ol>
+  {{if .Descendants}}
+  <h3>what it caused</h3>
+  <ul class="descendants">
+    {{template "frag/causalnode" .Descendants}}
+  </ul>
+  {{end}}
+  {{end}}
+</section>
+{{end}}
+{{end}}

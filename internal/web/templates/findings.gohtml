@@ -1,0 +1,37 @@
+{{define "findings"}}
+<h1>Findings</h1>
+<form method="get" action="/findings" class="filters">
+  <label>run <input type="text" name="run" value="{{.RunFilter}}"></label>
+  <label>gate <input type="text" name="gate" value="{{.GateFilter}}"></label>
+  <label>state
+    <select name="state">
+      <option value="failed" {{if eq .State "failed"}}selected{{end}}>failed only</option>
+      <option value="all" {{if eq .State "all"}}selected{{end}}>all evaluations</option>
+    </select>
+  </label>
+  <button type="submit">filter</button>
+</form>
+{{if .FetchErr}}
+  <p class="error">loading findings: {{.FetchErr}}</p>
+{{else if eq (len .Rows) 0}}
+  <p class="empty">No findings match this filter.</p>
+{{else}}
+<table>
+  <thead><tr><th></th><th>run</th><th>node</th><th>gate</th><th>kind</th><th>exit</th><th>duration</th><th>reason</th></tr></thead>
+  <tbody>
+  {{range .Rows}}
+  <tr>
+    <td>{{if .Passed}}✓{{else}}✗{{end}}</td>
+    <td><a href="/runs/{{.RunID}}">{{id .RunID}}</a></td>
+    <td>{{.NodeID}}</td>
+    <td>{{.GateID}}</td>
+    <td>{{.Kind}}</td>
+    <td>{{.ExitCode}}</td>
+    <td>{{.DurationMs}}ms</td>
+    <td>{{.Reason}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}

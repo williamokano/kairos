@@ -135,6 +135,7 @@ func newRootCmd(app *appCtx) *cobra.Command {
 	root.AddCommand(newParkCmd(app))
 	root.AddCommand(newSrcCmd(app))
 	root.AddCommand(newWebCmd(app))
+	root.AddCommand(newCostCmd(app))
 	return root
 }
 

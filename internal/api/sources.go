@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/williamokano/kairos/internal/eventstore"
 )
@@ -25,14 +27,35 @@ type sourceResponse struct {
 	Enabled         bool   `json:"enabled"`
 	Health          string `json:"health"`
 	HealthReason    string `json:"healthReason,omitempty"`
+	// ConsecutiveErrors, LastPollAt, NextPollAt, Cursor: the web/CLI
+	// Sources page's own reason for existing — 08-triggers.md requires
+	// these read back "verbatim", never summarized into a green/red dot,
+	// so a source that is failing quietly is visible as exactly that.
+	ConsecutiveErrors int     `json:"consecutiveErrors"`
+	LastPollAt        *string `json:"lastPollAt,omitempty"`
+	NextPollAt        *string `json:"nextPollAt,omitempty"`
+	Cursor            string  `json:"cursor,omitempty"`
 }
 
-func toSourceResponse(s eventstore.Source) sourceResponse {
-	return sourceResponse{
+func toSourceResponse(ctx context.Context, deps Deps, s eventstore.Source) sourceResponse {
+	resp := sourceResponse{
 		ID: s.ID, Kind: s.Kind, Flow: s.Flow, Project: s.Project,
 		IntervalSeconds: s.IntervalSeconds, Enabled: s.Enabled,
 		Health: s.Health.Status, HealthReason: s.Health.Reason,
+		ConsecutiveErrors: s.Health.ConsecutiveErrors,
 	}
+	if s.Health.LastPollAt != nil {
+		v := s.Health.LastPollAt.Format(time.RFC3339)
+		resp.LastPollAt = &v
+	}
+	if s.Health.NextPollAt != nil {
+		v := s.Health.NextPollAt.Format(time.RFC3339)
+		resp.NextPollAt = &v
+	}
+	if cursor, _, ok, err := deps.Store.GetSourceCursor(ctx, s.ID); err == nil && ok {
+		resp.Cursor = cursor
+	}
+	return resp
 }
 
 // registerSourceRoutes backs `kairos src add/ls/pause/resume`
@@ -64,7 +87,7 @@ func registerSourceRoutes(mux *http.ServeMux, deps Deps) {
 			writeError(w, http.StatusInternalServerError, "invariant_violation", err.Error())
 			return
 		}
-		writeJSON(w, http.StatusCreated, toSourceResponse(src))
+		writeJSON(w, http.StatusCreated, toSourceResponse(r.Context(), deps, src))
 	})
 
 	mux.HandleFunc("GET /sources", func(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +98,7 @@ func registerSourceRoutes(mux *http.ServeMux, deps Deps) {
 		}
 		out := make([]sourceResponse, 0, len(sources))
 		for _, s := range sources {
-			out = append(out, toSourceResponse(s))
+			out = append(out, toSourceResponse(r.Context(), deps, s))
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"sources": out})
 	})

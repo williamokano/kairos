@@ -1,0 +1,24 @@
+{{define "cost"}}
+<h1>Cost</h1>
+{{if .FetchErr}}
+  <p class="error">loading cost: {{.FetchErr}}</p>
+{{else}}
+<p class="note">Real per-run/per-model cost is never known (NL-30, 11-limitations.md): every llm-actor
+execution's actual usage is recorded as unavailable, not estimated. The one real spend figure this
+system tracks is L07's admission-time daily cap ESTIMATE below — never reconciled against what a run
+actually cost.</p>
+<table>
+  <thead><tr><th>day</th><th>estimated spend</th><th>daily cap</th></tr></thead>
+  <tbody>
+  <tr>
+    <td>{{.Cost.Day}}</td>
+    <td>{{if .Cost.SpendRecorded}}{{cost .Cost.SpentUSD}}{{else}}no estimate recorded yet{{end}}</td>
+    <td>{{if .Cost.DailyCapUSD}}{{cost .Cost.DailyCapUSD}}{{else}}none configured{{end}}</td>
+  </tr>
+  </tbody>
+</table>
+{{if .UnknownCostFetched}}
+<p class="note">{{.UnknownCostCount}} execution(s) recorded actual cost as unavailable (session.cost.unavailable).</p>
+{{end}}
+{{end}}
+{{end}}

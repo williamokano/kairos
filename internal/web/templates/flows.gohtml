@@ -1,0 +1,26 @@
+{{define "flows"}}
+<h1>Flows</h1>
+<p class="note">There is no durable "published workflow" registry in this daemon — a flow definition is a
+YAML file read fresh from disk every time a run starts. This lists every distinct definition this
+daemon has actually run, grouped from real run history, not a publish step that does not exist.</p>
+{{if .FetchErr}}
+  <p class="error">loading flows: {{.FetchErr}}</p>
+{{else if eq (len .Flows) 0}}
+  <p class="empty">No runs recorded yet.</p>
+{{else}}
+<table>
+  <thead><tr><th>definition</th><th>runs</th><th>succeeded</th><th>failed</th><th>recent runs</th></tr></thead>
+  <tbody>
+  {{range .Flows}}
+  <tr>
+    <td>{{.DefinitionRef}}</td>
+    <td>{{.Runs}}</td>
+    <td>{{.Succeeded}}</td>
+    <td>{{.Failed}}</td>
+    <td>{{range .RunIDs}}<a href="/runs/{{.}}">{{id .}}</a> {{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}

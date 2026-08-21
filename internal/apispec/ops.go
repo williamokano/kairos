@@ -30,7 +30,7 @@ var Ops = []Op{
 	{Method: "GET", Path: "/runs", CLIVerb: "ls", WebPath: "GET /runs"},
 	{Method: "GET", Path: "/runs/{id}", CLIVerb: "show", WebPath: "GET /runs/{id}"},
 	{Method: "GET", Path: "/runs/{id}/conversation", CLIVerb: "conversation show", WebPath: "GET /c/{runID}"},
-	{Method: "GET", Path: "/events", CLIVerb: "logs"},
+	{Method: "GET", Path: "/events", CLIVerb: "logs", WebPath: "GET /events"},
 	{Method: "POST", Path: "/runs/{id}/conversation/messages", CLIVerb: "conversation send", WebPath: "POST /c/{runID}/messages"},
 	{Method: "POST", Path: "/runs/{id}/approve", CLIVerb: "approve", WebPath: "POST /t/{runID}/{nodeID}/answer"},
 	{Method: "GET", Path: "/runs/{id}/effects", CLIVerb: "effects"},
@@ -46,7 +46,7 @@ var Ops = []Op{
 	{Method: "POST", Path: "/db/verify", CLIVerb: "db verify"},
 	{Method: "POST", Path: "/db/rebuild", CLIVerb: "db reindex"},
 	{Method: "POST", Path: "/sources", CLIVerb: "src add"},
-	{Method: "GET", Path: "/sources", CLIVerb: "src ls"},
+	{Method: "GET", Path: "/sources", CLIVerb: "src ls", WebPath: "GET /sources"},
 	{Method: "POST", Path: "/sources/{id}/pause", CLIVerb: "src pause"},
 	{Method: "POST", Path: "/sources/{id}/resume", CLIVerb: "src resume"},
 	{Method: "POST", Path: "/pause", CLIVerb: "pause"},
@@ -54,4 +54,5 @@ var Ops = []Op{
 	{Method: "POST", Path: "/resume", CLIVerb: "resume"},
 	{Method: "POST", Path: "/selfcheck", CLIVerb: "doctor"},
 	{Method: "POST", Path: "/db/backup", CLIVerb: "db backup"},
+	{Method: "GET", Path: "/cost", CLIVerb: "cost", WebPath: "GET /cost"},
 }

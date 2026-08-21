@@ -31,6 +31,8 @@ type fakeDaemon struct {
 	diffErr       error
 	compareResult cli.CompareResult
 	compareErr    error
+	sources       []cli.Source
+	costResp      cli.CostResponse
 }
 
 type approveCall struct{ RunID, NodeID, Decision, Reason, TypedWord string }
@@ -86,6 +88,12 @@ func newFakeDaemon(t *testing.T) (*fakeDaemon, string) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(fd.diffResult)
+	})
+	mux.HandleFunc("GET /sources", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"sources": fd.sources})
+	})
+	mux.HandleFunc("GET /cost", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(fd.costResp)
 	})
 	mux.HandleFunc("GET /runs/{a}/compare/{b}", func(w http.ResponseWriter, r *http.Request) {
 		if fd.compareErr != nil {

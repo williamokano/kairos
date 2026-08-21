@@ -1,0 +1,23 @@
+{{define "runners"}}
+<h1>Runners</h1>
+<p class="note">Real runner add/probe/drain management is 07-runners.md, a later, unbuilt phase. There is
+exactly one runner today — this renders that one real row, sourced from real doctor data, not an
+invented per-runner listing.</p>
+{{if .DoctorErr}}
+  <p class="error">loading doctor report: {{.DoctorErr}}</p>
+{{else}}
+<table>
+  <thead><tr><th>name</th><th>kind</th><th>toolchain</th></tr></thead>
+  <tbody>
+  <tr>
+    <td>local</td>
+    <td>local</td>
+    <td>
+      {{if eq (len .Doctor.Checks) 0}}—{{end}}
+      {{range .Doctor.Checks}}{{if .OK}}✓{{else}}✗{{end}}{{.Name}} {{end}}
+    </td>
+  </tr>
+  </tbody>
+</table>
+{{end}}
+{{end}}
