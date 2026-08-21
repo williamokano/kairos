@@ -30,6 +30,27 @@ func TestBuildLLMArgv_claudeResumeOmitsSessionID(t *testing.T) {
 	assertArgvExcludes(t, argv, "--session-id")
 }
 
+// TestBuildLLMArgv_claudeSessionWorkDirAddsExtraDir is a regression test:
+// a `kairos session`-bound run (WorkDirOverride != scratch dir) produced
+// NO output.json at all when run for real — Claude Code's own sandbox
+// hard-blocks Bash/Read/Write outside its cwd tree, so it could not reach
+// KAIROS_OUTPUT's path under the scratch dir once cwd moved to a
+// session's worktree elsewhere on disk. --add-dir (verified live via
+// `claude --help`) is the fix; extraDir must appear before --resume/
+// --session-id, and be entirely absent when there's no override (the
+// ordinary, non-session case must not change).
+func TestBuildLLMArgv_claudeSessionWorkDirAddsExtraDir(t *testing.T) {
+	argv := buildLLMArgv("claude", llmInvocation{sessionID: "abc-123", extraDir: "/scratch/dir"})
+
+	want := []string{"--print", "--output-format", "json", "--permission-mode", "acceptEdits", "--add-dir", "/scratch/dir", "--session-id", "abc-123"}
+	assertArgvEqual(t, argv, want)
+}
+
+func TestBuildLLMArgv_claudeNoWorkDirOverrideOmitsAddDir(t *testing.T) {
+	argv := buildLLMArgv("claude", llmInvocation{sessionID: "abc-123"})
+	assertArgvExcludes(t, argv, "--add-dir")
+}
+
 // TestBuildLLMArgv_gemini proves gemini's non-interactive shape
 // live-verified against gemini 0.22.5: -o json, and critically NO
 // positional prompt argument — the prompt stays on stdin (04-agents.md:

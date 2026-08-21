@@ -34,6 +34,16 @@ type llmInvocation struct {
 	resumeOf   string
 	schemaPath string
 	outputPath string
+	// extraDir is the scratch dir holding output.json/schema.json
+	// (KAIROS_OUTPUT/KAIROS_SCHEMA), set ONLY when it differs from the
+	// process's real cwd (a `kairos session`'s WorkDirOverride, e.g. a
+	// project's worktree elsewhere on disk). Found via real live testing:
+	// Claude Code's own sandbox hard-blocks Bash/Read/Write outside the
+	// cwd tree — a session-bound run produced no output.json at all,
+	// failing with "permission_denials" until this was added. claude's
+	// `--add-dir` flag (verified live, `claude --help`) is the fix;
+	// nothing else needs to move.
+	extraDir string
 }
 
 // llmArgvBuilders maps an actor kind onto its CLI's real, current
@@ -127,6 +137,9 @@ func nativeResumeSupported(actorKind string) bool {
 // one of the two is ever emitted here, never both.
 func claudeArgv(inv llmInvocation) []string {
 	argv := []string{"--print", "--output-format", "json", "--permission-mode", "acceptEdits"}
+	if inv.extraDir != "" {
+		argv = append(argv, "--add-dir", inv.extraDir)
+	}
 	if inv.resumeOf != "" {
 		return append(argv, "--resume", inv.resumeOf)
 	}

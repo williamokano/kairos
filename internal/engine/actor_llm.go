@@ -233,11 +233,16 @@ func (e *Engine) startLLM(ctx context.Context, c domain.CmdStartNode, actorKind,
 		env = append(env, "KAIROS_RESUME_SESSION_ID="+resumeOf)
 	}
 	env = append(env, configDirEnv(actorKind, e.llmConfigDir)...)
+	extraDir := ""
+	if workDir != dir {
+		extraDir = dir
+	}
 	argv := append([]string{e.llmBinary}, buildLLMArgv(actorKind, llmInvocation{
 		sessionID:  sessionID,
 		resumeOf:   resumeOf,
 		schemaPath: schemaPath,
 		outputPath: outputPath,
+		extraDir:   extraDir,
 	})...)
 	return e.exec.Start(ctx, local.ExecSpec{
 		RunID: c.RunID, NodeID: c.NodeID, ExecID: c.ExecID,
