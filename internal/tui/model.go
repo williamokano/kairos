@@ -25,6 +25,14 @@ const (
 	ScreenBenchmark
 	ScreenDecision
 	ScreenOnboarding
+	// ScreenProjects/ScreenSessions/ScreenSessionChat bring the TUI to
+	// parity with the web UI's Projects/Sessions feature set (L28) — a
+	// THIRD presentation of the same daemon endpoints the web UI and CLI
+	// already call (internal/cli.Client's CreateProject/StartSession/
+	// EndSession/BrowseFS/DoWithSession), not a new mechanism.
+	ScreenProjects
+	ScreenSessions
+	ScreenSessionChat
 )
 
 // Mode is the two-mode keyboard model 09-cli-and-tui.md requires: in NAV,
@@ -70,6 +78,9 @@ type Model struct {
 	runners      runnersState
 	benchmark    benchmarkState
 	decision     decisionState
+	projects     projectsState
+	sessions     sessionsState
+	sessionChat  sessionChatState
 
 	quitting bool
 }
@@ -178,6 +189,64 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.conversation.isAdHoc = true
 		m.statusLine = "started " + msg.resp.RunID
 		return m, m.fetchConversation(msg.resp.ConversationRunID)
+
+	case projectsFetchedMsg:
+		m.projects.projects = msg.projects
+		m.projects.err = msg.err
+		return m, nil
+
+	case projectCreatedMsg:
+		if msg.err != nil {
+			m.projects.createErr = msg.err
+			return m, nil
+		}
+		m.projects.creating = false
+		m.projects.picker = dirPickerState{}
+		m.statusLine = "created project " + msg.project.Name
+		return m, m.fetchProjects()
+
+	case fsBrowsedMsg:
+		m.projects.picker.resp = msg.resp
+		m.projects.picker.cursor = 0
+		m.projects.picker.err = msg.err
+		return m, nil
+
+	case sessionsFetchedMsg:
+		m.sessions.sessions = msg.sessions
+		m.sessions.err = msg.err
+		return m, nil
+
+	case sessionStartedMsg:
+		if msg.err != nil {
+			m.sessions.startErr = msg.err
+			return m, nil
+		}
+		m.sessions.starting = false
+		m.statusLine = "started session " + msg.session.ID
+		return m, m.fetchSessions()
+
+	case sessionChatFetchedMsg:
+		m.sessionChat.session = msg.session
+		m.sessionChat.messages = msg.messages
+		m.sessionChat.err = msg.err
+		return m, nil
+
+	case sessionDoResultMsg:
+		if msg.err != nil {
+			m.statusLine = "send failed: " + msg.err.Error()
+			return m, nil
+		}
+		return m, m.fetchSessionChat(m.sessionChat.sessionID)
+
+	case sessionEndedMsg:
+		if msg.err != nil {
+			m.sessionChat.endErr = msg.err
+			return m, nil
+		}
+		m.sessionChat.ending = false
+		m.statusLine = "ended session " + m.sessionChat.sessionID
+		m.navigate(ScreenSessions)
+		return m, m.fetchSessions()
 	}
 
 	return m, nil
@@ -209,6 +278,12 @@ func (m Model) View() string {
 		return m.viewBenchmark()
 	case ScreenDecision:
 		return m.viewDecision()
+	case ScreenProjects:
+		return m.viewProjects()
+	case ScreenSessions:
+		return m.viewSessions()
+	case ScreenSessionChat:
+		return m.viewSessionChat()
 	}
 	return ""
 }

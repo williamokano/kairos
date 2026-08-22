@@ -59,6 +59,47 @@ type doResultMsg struct {
 	err  error
 }
 
+type projectsFetchedMsg struct {
+	projects []cli.Project
+	err      error
+}
+
+type projectCreatedMsg struct {
+	project cli.Project
+	err     error
+}
+
+type fsBrowsedMsg struct {
+	resp cli.FSBrowseResponse
+	err  error
+}
+
+type sessionsFetchedMsg struct {
+	sessions []cli.Session
+	err      error
+}
+
+type sessionStartedMsg struct {
+	session cli.Session
+	err     error
+}
+
+// sessionChatFetchedMsg carries both the Session record (for its header —
+// actor, workdir, branch) and its full message history in one round trip,
+// mirroring the web UI's session-centric chat page's own combined fetch.
+type sessionChatFetchedMsg struct {
+	session  cli.Session
+	messages []cli.ConversationMessage
+	err      error
+}
+
+type sessionDoResultMsg struct {
+	resp cli.DoResponse
+	err  error
+}
+
+type sessionEndedMsg struct{ err error }
+
 // refreshCmd re-fetches whatever the current screen needs. This is the
 // polling stand-in for live SSE push (doc.go).
 func (m Model) refreshCmd() tea.Cmd {
@@ -77,8 +118,109 @@ func (m Model) refreshCmd() tea.Cmd {
 		return m.fetchInbox()
 	case ScreenRunners:
 		return m.fetchDoctor()
+	case ScreenProjects:
+		return m.fetchProjects()
+	case ScreenSessions:
+		return m.fetchSessions()
+	case ScreenSessionChat:
+		if m.sessionChat.sessionID != "" {
+			return m.fetchSessionChat(m.sessionChat.sessionID)
+		}
 	}
 	return nil
+}
+
+func (m Model) fetchProjects() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := withTimeout(m.ctx)
+		defer cancel()
+		projects, err := m.client.ListProjects(ctx)
+		return projectsFetchedMsg{projects: projects, err: err}
+	}
+}
+
+func (m Model) createProject(name, path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := withTimeout(m.ctx)
+		defer cancel()
+		project, err := m.client.CreateProject(ctx, name, path)
+		return projectCreatedMsg{project: project, err: err}
+	}
+}
+
+func (m Model) browseFS(path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := withTimeout(m.ctx)
+		defer cancel()
+		resp, err := m.client.BrowseFS(ctx, path)
+		return fsBrowsedMsg{resp: resp, err: err}
+	}
+}
+
+func (m Model) fetchSessions() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := withTimeout(m.ctx)
+		defer cancel()
+		sessions, err := m.client.ListSessions(ctx)
+		return sessionsFetchedMsg{sessions: sessions, err: err}
+	}
+}
+
+func (m Model) startSession(projectName, actor string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := withTimeout(m.ctx)
+		defer cancel()
+		session, err := m.client.StartSession(ctx, projectName, actor)
+		return sessionStartedMsg{session: session, err: err}
+	}
+}
+
+// fetchSessionChat combines GetSession (for the header/ConversationRunID)
+// and GetConversation into the one message this screen needs — see
+// sessionChatFetchedMsg's doc comment.
+func (m Model) fetchSessionChat(sessionID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := withTimeout(m.ctx)
+		defer cancel()
+		session, err := m.client.GetSession(ctx, sessionID)
+		if err != nil {
+			return sessionChatFetchedMsg{err: err}
+		}
+		if session.ConversationRunID == "" {
+			// A session with no turns yet has no conversation to fetch —
+			// a real, empty-but-valid state, not an error.
+			return sessionChatFetchedMsg{session: session}
+		}
+		msgs, err := m.client.GetConversation(ctx, session.ConversationRunID)
+		return sessionChatFetchedMsg{session: session, messages: msgs, err: err}
+	}
+}
+
+// sendSessionMessage always carries m.sessionChat.sessionID explicitly —
+// the one thing this whole screen exists to make structurally impossible
+// to drop (see sessionChatState's doc comment).
+func (m Model) sendSessionMessage(sessionID, text string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := withTimeout(m.ctx)
+		defer cancel()
+		resp, err := m.client.DoWithSession(ctx, text, "", sessionID)
+		return sessionDoResultMsg{resp: resp, err: err}
+	}
+}
+
+// endSession is only ever constructed after the screen's own two-step
+// confirm flow (keys_sessionchat.go) has collected a real reason and a
+// typed confirmation — never reachable from a bare keypress. The server
+// re-checks confirm == sessionID regardless (internal/api's existing
+// Cancel/Fork/EndSession discipline: client-side gating is a UX aid, the
+// server decides).
+func (m Model) endSession(sessionID, reason, confirm string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := withTimeout(m.ctx)
+		defer cancel()
+		err := m.client.EndSession(ctx, sessionID, reason, confirm)
+		return sessionEndedMsg{err: err}
+	}
 }
 
 func (m Model) fetchRuns() tea.Cmd {

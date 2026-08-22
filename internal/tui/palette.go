@@ -20,6 +20,10 @@ var screenNames = map[string]Screen{
 	"runners":       ScreenRunners,
 	"bench":         ScreenBenchmark,
 	"benchmark":     ScreenBenchmark,
+	"projects":      ScreenProjects,
+	"project":       ScreenProjects,
+	"sessions":      ScreenSessions,
+	"session":       ScreenSessions,
 }
 
 // paletteVerbs resolves a typed verb to the screen that best represents it
@@ -80,9 +84,17 @@ func (m Model) handlePaletteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.paletteInput = ""
 		return m, nil
 	case "enter":
-		screen, runID, isRun, matched := m.resolvePalette(m.paletteInput)
+		input := strings.TrimSpace(m.paletteInput)
 		m.paletteOpen = false
 		m.paletteInput = ""
+		// Sessions carry a real "ses_" prefix (unlike bare run ids) — the
+		// user's own ask was for the palette to jump straight into "start
+		// chatting in session X" without forcing every TUI interaction
+		// through the plain ad hoc composer first.
+		if strings.HasPrefix(input, "ses_") {
+			return m.navigateToSessionChat(input)
+		}
+		screen, runID, isRun, matched := m.resolvePalette(input)
 		if !matched {
 			m.statusLine = "no match"
 			return m, nil

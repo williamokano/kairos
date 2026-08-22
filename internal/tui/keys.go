@@ -21,6 +21,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleOnboardingKey(msg)
 	}
 
+	// The directory picker (screens_projects.go) runs in NAV mode (j/k/
+	// enter/u/s), which would otherwise let the global switch below steal
+	// 'esc'/'s' before this sub-flow ever sees them — the exact same
+	// reason ScreenDecision gets an early, full bypass above, not a
+	// per-key carve-out.
+	if m.screen == ScreenProjects && m.projects.creating && m.projects.picking {
+		return m.handleProjectCreateKey(msg)
+	}
+
 	if m.mode == ModeINPUT {
 		return m.handleGlobalInputKey(msg)
 	}
@@ -37,6 +46,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		m.navigate(ScreenInbox)
 		return m, m.fetchInbox()
+	case "p":
+		m.navigate(ScreenProjects)
+		return m, m.fetchProjects()
+	case "s":
+		// The directory picker's own "select this dir" 's' never reaches
+		// here — handleKey's early bypass above routes every key
+		// straight to handleProjectCreateKey while picking is active.
+		m.navigate(ScreenSessions)
+		return m, m.fetchSessions()
 	case "r":
 		if m.screen != ScreenHome { // 'r' is also "runs" nav; on Home it's reserved by the composer's 'i' path elsewhere
 			m.navigate(ScreenHome)
@@ -104,6 +122,18 @@ func (m Model) handleGlobalInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.screen == ScreenBenchmark {
 		return m.handleBenchmarkInputKey(msg)
+	}
+	if m.screen == ScreenProjects {
+		return m.handleProjectsKey(msg)
+	}
+	if m.screen == ScreenSessions {
+		return m.handleSessionsKey(msg)
+	}
+	if m.screen == ScreenSessionChat {
+		if m.sessionChat.ending {
+			return m.handleSessionEndKey(msg)
+		}
+		return m.handleSessionChatInputKey(msg)
 	}
 
 	switch msg.String() {
@@ -207,6 +237,12 @@ func (m Model) dispatchScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = ModeINPUT
 		}
 		return m, nil
+	case ScreenProjects:
+		return m.handleProjectsKey(msg)
+	case ScreenSessions:
+		return m.handleSessionsKey(msg)
+	case ScreenSessionChat:
+		return m.handleSessionChatKey(msg)
 	}
 	return m, nil
 }
