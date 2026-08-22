@@ -64,4 +64,7 @@ var Ops = []Op{
 	{Method: "GET", Path: "/sessions/{id}", CLIVerb: "session show", WebPath: "GET /sessions/{id}"},
 	{Method: "DELETE", Path: "/sessions/{id}", CLIVerb: "session end", WebPath: "DELETE /sessions/{id}"},
 	{Method: "GET", Path: "/fs/browse", CLIVerb: "fs browse", WebPath: "GET /frag/fs/browse"},
+	{Method: "POST", Path: "/flow-definitions", CLIVerb: "flow create", WebPath: "POST /flows/new"},
+	{Method: "GET", Path: "/flow-definitions", CLIVerb: "flow ls", WebPath: "GET /flows"},
+	{Method: "GET", Path: "/flow-definitions/{name}", CLIVerb: "flow run"},
 }

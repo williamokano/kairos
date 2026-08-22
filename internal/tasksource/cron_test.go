@@ -71,3 +71,51 @@ func TestCronCatchUp_noColdStartOnNormalCadence(t *testing.T) {
 		t.Error("expected no cold start on a normal, uninterrupted daily cadence")
 	}
 }
+
+// TestBuildCronConfig_validInputsProduceExpectedJSON proves the CLI's
+// `kairos src add cron` friendly flags and the web Sources form's cron
+// fields build the IDENTICAL config shape startCron itself parses — one
+// constructor, two ergonomic front doors, never a divergent schema.
+func TestBuildCronConfig_validInputsProduceExpectedJSON(t *testing.T) {
+	got, err := tasksource.BuildCronConfig("weekly", 2, 9, 30)
+	if err != nil {
+		t.Fatalf("BuildCronConfig: %v", err)
+	}
+	want := `{"schedule":"weekly","weekday":2,"hour":9,"minute":30}`
+	if got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+}
+
+func TestBuildCronConfig_dailyOmitsWeekdayEvenIfPassed(t *testing.T) {
+	got, err := tasksource.BuildCronConfig("daily", 5, 9, 30)
+	if err != nil {
+		t.Fatalf("BuildCronConfig: %v", err)
+	}
+	// weekday is only meaningful for "weekly" — daily must not carry a
+	// stray weekday value into the config a real cron source parses.
+	if want := `{"schedule":"daily","hour":9,"minute":30}`; got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+}
+
+func TestBuildCronConfig_rejectsInvalidInputs(t *testing.T) {
+	cases := []struct {
+		name                  string
+		schedule              string
+		weekday, hour, minute int
+	}{
+		{"bad schedule", "monthly", 0, 9, 0},
+		{"hour too high", "daily", 0, 24, 0},
+		{"hour negative", "daily", 0, -1, 0},
+		{"minute too high", "daily", 0, 9, 60},
+		{"weekday too high for weekly", "weekly", 7, 9, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := tasksource.BuildCronConfig(c.schedule, c.weekday, c.hour, c.minute); err == nil {
+				t.Errorf("expected an error for %s", c.name)
+			}
+		})
+	}
+}

@@ -24,6 +24,10 @@ var screenNames = map[string]Screen{
 	"project":       ScreenProjects,
 	"sessions":      ScreenSessions,
 	"session":       ScreenSessions,
+	"flow new":      ScreenFlowCreate,
+	"flows new":     ScreenFlowCreate,
+	"source new":    ScreenSourceCreate,
+	"sources new":   ScreenSourceCreate,
 }
 
 // paletteVerbs resolves a typed verb to the screen that best represents it

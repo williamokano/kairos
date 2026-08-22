@@ -616,6 +616,25 @@ func (c *Client) AddSource(ctx context.Context, id, kind, config, flow, project 
 	return out, err
 }
 
+// AddCronSource is the friendly-field entry point for "cron", the one
+// source kind that's a real, constructible Source today (see internal/
+// tasksource.BuildCronConfig's doc comment) — schedule/weekday/hour/
+// minute are sent as discrete fields and built into the real config
+// string SERVER-SIDE (internal/api's POST /sources), so this method
+// never needs internal/tasksource itself; that keeps internal/tui (the
+// one caller with an "never imports execution machinery" rule, ADR 0008)
+// clean of it, while still producing the IDENTICAL config shape `kairos
+// src add cron`'s own client-side tasksource.BuildCronConfig call
+// builds — one constructor, reached two ways, never a divergent schema.
+func (c *Client) AddCronSource(ctx context.Context, id, schedule string, weekday, hour, minute int, flow string) (Source, error) {
+	var out Source
+	err := c.do(ctx, http.MethodPost, "/sources", map[string]any{
+		"id": id, "kind": "cron", "flow": flow,
+		"schedule": schedule, "weekday": weekday, "hour": hour, "minute": minute,
+	}, &out)
+	return out, err
+}
+
 func (c *Client) ListSources(ctx context.Context) ([]Source, error) {
 	var out struct {
 		Sources []Source `json:"sources"`
@@ -630,6 +649,37 @@ func (c *Client) PauseSource(ctx context.Context, id string) error {
 
 func (c *Client) ResumeSource(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/sources/"+id+"/resume", nil, nil)
+}
+
+// FlowDefinition mirrors internal/api's flowDefinitionResponse.
+type FlowDefinition struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// CreateFlowDefinition saves a hand-authored workflow — `kairos flow
+// create`, the web editor, and (should a future surface need it) the TUI
+// all call this one method, so a bad workflow is rejected with the same
+// real registry.Load error text everywhere, never a divergent message
+// per surface.
+func (c *Client) CreateFlowDefinition(ctx context.Context, name, yamlText string) (FlowDefinition, error) {
+	var out FlowDefinition
+	err := c.do(ctx, http.MethodPost, "/flow-definitions", map[string]any{"name": name, "yaml": yamlText}, &out)
+	return out, err
+}
+
+func (c *Client) ListFlowDefinitions(ctx context.Context) ([]FlowDefinition, error) {
+	var out struct {
+		Flows []FlowDefinition `json:"flows"`
+	}
+	err := c.do(ctx, http.MethodGet, "/flow-definitions", nil, &out)
+	return out.Flows, err
+}
+
+func (c *Client) GetFlowDefinition(ctx context.Context, name string) (FlowDefinition, error) {
+	var out FlowDefinition
+	err := c.do(ctx, http.MethodGet, "/flow-definitions/"+name, nil, &out)
+	return out, err
 }
 
 // Envelope mirrors the fields internal/events.Envelope serializes over

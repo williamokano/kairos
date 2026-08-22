@@ -129,6 +129,12 @@ func (m Model) handleGlobalInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.screen == ScreenSessions {
 		return m.handleSessionsKey(msg)
 	}
+	if m.screen == ScreenFlowCreate {
+		return m.handleFlowCreateKey(msg)
+	}
+	if m.screen == ScreenSourceCreate {
+		return m.handleSourceCreateKey(msg)
+	}
 	if m.screen == ScreenSessionChat {
 		if m.sessionChat.ending {
 			return m.handleSessionEndKey(msg)
@@ -243,6 +249,10 @@ func (m Model) dispatchScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSessionsKey(msg)
 	case ScreenSessionChat:
 		return m.handleSessionChatKey(msg)
+	case ScreenFlowCreate:
+		return m.handleFlowCreateKey(msg)
+	case ScreenSourceCreate:
+		return m.handleSourceCreateKey(msg)
 	}
 	return m, nil
 }

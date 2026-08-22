@@ -2,9 +2,12 @@ package web
 
 import (
 	"context"
+	"html"
 	"net/http"
+	"strconv"
 
 	"github.com/williamokano/kairos/internal/cli"
+	"github.com/williamokano/kairos/internal/tasksource"
 )
 
 // sourceRow flattens cli.Source's optional pointer fields (LastPollAt/
@@ -19,8 +22,9 @@ type sourceRow struct {
 }
 
 type sourcesPageData struct {
-	Sources  []sourceRow
-	FetchErr error
+	Sources   []sourceRow
+	FetchErr  error
+	FormNonce string
 }
 
 // handleSourcesPage is 10-webui.md's `/sources` — L16's trigger sources
@@ -37,7 +41,7 @@ func handleSourcesPage(deps Deps) http.HandlerFunc {
 		defer cancel()
 		sources, err := deps.Client.ListSources(ctx)
 		if err != nil {
-			renderPage(w, "sources", "sources", sourcesPageData{FetchErr: err})
+			renderPage(w, "sources", "sources", sourcesPageData{FetchErr: err, FormNonce: nonce()})
 			return
 		}
 		rows := make([]sourceRow, 0, len(sources))
@@ -51,6 +55,49 @@ func handleSourcesPage(deps Deps) http.HandlerFunc {
 			}
 			rows = append(rows, row)
 		}
-		renderPage(w, "sources", "sources", sourcesPageData{Sources: rows})
+		renderPage(w, "sources", "sources", sourcesPageData{Sources: rows, FormNonce: nonce()})
+	}
+}
+
+// handleCreateCronSource is the Sources page's real, structured-field
+// form — 08-triggers.md's own named Future work ("a friendlier per-kind
+// flag surface... is cosmetic, deferred"), closed here for "cron", the
+// one source kind that's actually a real, constructible Source today
+// (github/jira/linear/plugin are never registered anywhere in this tree
+// — see internal/tasksource.BuildCronConfig's doc comment). Builds the
+// IDENTICAL config string `kairos src add cron`'s friendly flags build,
+// via the same shared tasksource.BuildCronConfig — never a second,
+// divergent schema — then calls the same deps.Client.AddSource every
+// other source-creation entrypoint already uses.
+func handleCreateCronSource(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			writeFlowFormError(w, http.StatusBadRequest, "bad form: "+err.Error())
+			return
+		}
+		id := r.PostForm.Get("id")
+		schedule := r.PostForm.Get("schedule")
+		flow := r.PostForm.Get("flow")
+		if id == "" || schedule == "" || flow == "" {
+			writeFlowFormError(w, http.StatusBadRequest, "id, schedule, and flow are all required")
+			return
+		}
+		weekday, _ := strconv.Atoi(r.PostForm.Get("weekday"))
+		hour, _ := strconv.Atoi(r.PostForm.Get("hour"))
+		minute, _ := strconv.Atoi(r.PostForm.Get("minute"))
+		config, err := tasksource.BuildCronConfig(schedule, weekday, hour, minute)
+		if err != nil {
+			writeFlowFormError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+		defer cancel()
+		src, err := deps.Client.AddSource(ctx, id, "cron", config, flow, "", 0)
+		if err != nil {
+			writeFlowFormError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<p class="mutation-done">source <code>` + html.EscapeString(src.ID) + `</code> created — <a href="/sources">back to sources</a></p>`))
 	}
 }

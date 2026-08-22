@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/williamokano/kairos/internal/eventstore"
+	"github.com/williamokano/kairos/internal/tasksource"
 )
 
 type createSourceRequest struct {
@@ -16,6 +17,20 @@ type createSourceRequest struct {
 	Flow     string `json:"flow"`
 	Project  string `json:"project"`
 	Interval int    `json:"intervalSeconds"`
+	// Schedule/Weekday/Hour/Minute are the friendly-flag/form alternative
+	// to hand-writing Config's raw JSON for kind "cron" — 08-triggers.md's
+	// own named Future work ("a friendlier per-kind flag surface... is
+	// cosmetic, deferred"), closed here for the one kind that's actually
+	// a real, constructible Source today (see registerSourceRoutes' doc
+	// comment and L29-flow-and-source-authoring.md). Both `kairos src add
+	// cron` and the web Sources form post these instead of Config; either
+	// path produces the IDENTICAL config string tasksource.BuildCronConfig
+	// renders — never a second, divergent schema. Ignored for any other
+	// kind; Config remains the escape hatch there.
+	Schedule string `json:"schedule,omitempty"`
+	Weekday  int    `json:"weekday,omitempty"`
+	Hour     int    `json:"hour,omitempty"`
+	Minute   int    `json:"minute,omitempty"`
 }
 
 type sourceResponse struct {
@@ -72,6 +87,14 @@ func registerSourceRoutes(mux *http.ServeMux, deps Deps) {
 		if req.ID == "" || req.Kind == "" {
 			writeError(w, http.StatusBadRequest, "usage", "id and kind are required")
 			return
+		}
+		if req.Config == "" && req.Kind == "cron" && req.Schedule != "" {
+			cfg, err := tasksource.BuildCronConfig(req.Schedule, req.Weekday, req.Hour, req.Minute)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "usage", err.Error())
+				return
+			}
+			req.Config = cfg
 		}
 		if req.Config == "" {
 			req.Config = "{}"

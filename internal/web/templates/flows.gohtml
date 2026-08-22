@@ -1,8 +1,37 @@
 {{define "flows"}}
 <h1>Flows</h1>
-<p class="note">There is no durable "published workflow" registry in this daemon — a flow definition is a
-YAML file read fresh from disk every time a run starts. This lists every distinct definition this
-daemon has actually run, grouped from real run history, not a publish step that does not exist.</p>
+
+<section class="composer">
+  <h2>New flow</h2>
+  <form hx-post="/flows/new" hx-target="#flow-create-result" hx-swap="innerHTML">
+    <input type="hidden" name="nonce" value="{{.FormNonce}}">
+    <label>name <input name="name" placeholder="my-workflow" required autocomplete="off"></label>
+    <label>workflow YAML
+      <textarea name="yaml" rows="14" placeholder="name: my-workflow&#10;nodes:&#10;  - id: greet&#10;    actor: rule&#10;    output: { x: &quot;string&quot; }" required spellcheck="false"></textarea>
+    </label>
+    <button type="submit">save flow</button>
+  </form>
+  <div id="flow-create-result"></div>
+</section>
+
+<section>
+  <h2>Saved flows ({{len .Saved}})</h2>
+  {{if eq (len .Saved) 0}}
+    <p class="empty">No saved flows yet — create one above, or `kairos flow create`.</p>
+  {{else}}
+  <ul class="saved-flows" data-nav-list>
+    {{range .Saved}}
+    <li data-nav-item><code>{{.Name}}</code> <span class="muted">{{.Path}}</span></li>
+    {{end}}
+  </ul>
+  {{end}}
+</section>
+
+<section>
+<h2>Run history</h2>
+<p class="note">There is no durable "published workflow" registry beyond what's saved above — a run's own
+DefinitionRef is read fresh from disk every time it starts. This table groups every distinct definition
+this daemon has actually run, by real run history.</p>
 {{if .FetchErr}}
   <p class="error">loading flows: {{.FetchErr}}</p>
 {{else if eq (len .Flows) 0}}
@@ -23,4 +52,5 @@ daemon has actually run, grouped from real run history, not a publish step that 
   </tbody>
 </table>
 {{end}}
+</section>
 {{end}}

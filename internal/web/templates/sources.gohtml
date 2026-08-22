@@ -1,5 +1,30 @@
 {{define "sources"}}
 <h1>Sources</h1>
+
+<section class="composer">
+  <h2>New cron source</h2>
+  <p class="note">Cron is the only trigger-source kind that's real and constructible today —
+  github/jira/linear/plugin sources have no working implementation registered in this daemon yet
+  (see L29-flow-and-source-authoring.md). For anything else, use <code>kairos src add --kind
+  &lt;kind&gt; --config '{"...json..."}'</code> directly.</p>
+  <form hx-post="/sources/new-cron" hx-target="#source-create-result" hx-swap="innerHTML">
+    <input type="hidden" name="nonce" value="{{.FormNonce}}">
+    <label>id <input name="id" placeholder="nightly-backup" required autocomplete="off"></label>
+    <label>flow (workflow definition path or saved flow path) <input name="flow" placeholder="/home/you/.kairos/flows/my-workflow.yaml" required autocomplete="off"></label>
+    <label>schedule
+      <select name="schedule" required>
+        <option value="daily">daily</option>
+        <option value="weekly">weekly</option>
+      </select>
+    </label>
+    <label>weekday (0=Sunday, only for weekly) <input type="number" name="weekday" min="0" max="6" value="0"></label>
+    <label>hour (0-23) <input type="number" name="hour" min="0" max="23" value="0" required></label>
+    <label>minute (0-59) <input type="number" name="minute" min="0" max="59" value="0" required></label>
+    <button type="submit">create cron source</button>
+  </form>
+  <div id="source-create-result"></div>
+</section>
+
 {{if .FetchErr}}
   <p class="error">loading sources: {{.FetchErr}}</p>
 {{else if eq (len .Sources) 0}}

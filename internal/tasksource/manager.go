@@ -104,13 +104,52 @@ func (m *Manager) startPoller(ctx context.Context, src eventstore.Source) {
 	}()
 }
 
-// cronSourceConfig is the source.config JSON shape a `kind: cron` row
-// carries.
-type cronSourceConfig struct {
+// CronSourceConfig is the source.config JSON shape a `kind: cron` row
+// carries. Exported so the CLI's and the web UI's friendly-flag/form
+// entry points for creating a cron source both build the IDENTICAL
+// config a hand-written --config JSON string would have produced — one
+// shape, two ergonomic front doors, never a divergent schema (see
+// BuildCronConfig).
+type CronSourceConfig struct {
 	Schedule string `json:"schedule"` // "daily" | "weekly"
 	Weekday  int    `json:"weekday,omitempty"`
 	Hour     int    `json:"hour"`
 	Minute   int    `json:"minute"`
+}
+
+type cronSourceConfig = CronSourceConfig
+
+// BuildCronConfig validates schedule/weekday/hour/minute and renders the
+// real source.config JSON string startCron itself parses — the single
+// place this shape is constructed, shared by internal/cli's `kairos src
+// add cron` and internal/web's cron-source form (08-triggers.md's own
+// named Future work: "a friendlier per-kind flag surface... is cosmetic,
+// deferred" — closed here for the one kind, cron, that actually has a
+// real, constructible Source today; see L29-flow-and-source-authoring.md
+// for why github/jira/linear/plugin kinds are NOT given the same
+// treatment in this pass).
+func BuildCronConfig(schedule string, weekday, hour, minute int) (string, error) {
+	if schedule != "daily" && schedule != "weekly" {
+		return "", fmt.Errorf(`tasksource: schedule must be "daily" or "weekly", got %q`, schedule)
+	}
+	if hour < 0 || hour > 23 {
+		return "", fmt.Errorf("tasksource: hour must be 0-23, got %d", hour)
+	}
+	if minute < 0 || minute > 59 {
+		return "", fmt.Errorf("tasksource: minute must be 0-59, got %d", minute)
+	}
+	if schedule == "weekly" && (weekday < 0 || weekday > 6) {
+		return "", fmt.Errorf("tasksource: weekday must be 0-6 (Sunday-Saturday), got %d", weekday)
+	}
+	cfg := CronSourceConfig{Schedule: schedule, Hour: hour, Minute: minute}
+	if schedule == "weekly" {
+		cfg.Weekday = weekday
+	}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("tasksource: marshalling cron config: %w", err)
+	}
+	return string(b), nil
 }
 
 func (m *Manager) startCron(ctx context.Context, src eventstore.Source) {

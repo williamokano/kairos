@@ -56,7 +56,12 @@ reachable off-host.
 | `kairos project ls` | list Projects |
 | `kairos session start [--project <name>] [--actor claude]` | start a stable, resumable chat Session — a git-backed Project gets a real `git worktree` (its own branch, real isolation) |
 | `kairos session ls` | list Sessions (actor, project, run count, last used, who started it) |
+| `kairos session end <id> --reason <text> --confirm <id>` | end a Session — removes its real worktree; typed confirmation required, no shortcut |
 | `kairos do <text> [--session <id>] [--continue <runID>]` | start (or continue) an ad hoc task from free text — see §8 |
+| `kairos flow create <name> (--file <path> \| --from-stdin)` | save a hand-authored workflow — validated the same way `kairos run` validates any file, rejected loudly if broken |
+| `kairos flow ls` | list saved workflows |
+| `kairos flow run <name> [--param k=v ...]` | start a run from a saved workflow, by name |
+| `kairos src add <id> --kind cron --schedule daily\|weekly --hour H --minute M [--weekday N] --flow <path>` | register a cron trigger source with real, structured flags (see §11) |
 | `kairos check-output` | (used by actors, not you) validates `$KAIROS_OUTPUT` against `$KAIROS_SCHEMA` |
 
 Every command accepts `-o json` for machine-readable output instead of the default table/text
@@ -347,3 +352,57 @@ exactly this scenario, asserted event-by-event rather than eyeballed.
   the Host-allowlist/Origin checks (DNS-rebinding and cross-site-mutation defenses) still apply
   regardless. Don't set this unless something else really is authenticating requests before they
   reach Kairos.
+
+## 11. Creating workflows and trigger sources (no more hand-editing files on the daemon's disk)
+
+Until now, a workflow could only be *referenced* by a file path that already existed on the
+daemon's own machine — nothing let you author a new one through any surface. `kairos flow create`
+closes that:
+
+```sh
+cat > /tmp/greet-flow.yaml <<'EOF'
+name: greet-flow
+nodes:
+  - id: greet
+    actor: rule
+    output: { x: "string" }
+EOF
+
+kairos flow create greet-flow --file /tmp/greet-flow.yaml
+# greet-flow    /home/you/.kairos/flows/greet-flow.yaml
+
+kairos flow ls
+# NAME        PATH
+# greet-flow  /home/you/.kairos/flows/greet-flow.yaml
+
+kairos flow run greet-flow
+# 01H...   running
+```
+
+A broken workflow is rejected loudly, with the real error, and leaves no file behind:
+
+```sh
+echo "not a valid workflow" | kairos flow create broken --from-stdin
+# Error: registry: workflow is invalid: ...
+```
+
+The web UI has the same thing at **Flows → New flow** (a real textarea editor, same validation),
+and the TUI has it at the command palette — type `:flow new`.
+
+**Trigger sources** (so work can arrive automatically, not just via `kairos run`/`kairos do`):
+honestly, only **`cron`** is a real, working source kind today — `github`/`jira`/`linear`/custom
+plugin kinds are named in the design but have no working implementation registered in this
+daemon yet (see `L29-flow-and-source-authoring.md`). For cron, real structured flags exist instead
+of hand-writing `--config`'s raw JSON:
+
+```sh
+kairos src add nightly-backup --kind cron --schedule daily --hour 3 --minute 30 \
+  --flow /home/you/.kairos/flows/greet-flow.yaml
+
+kairos src ls
+# ID              KIND  ENABLED  HEALTH   FLOW
+# nightly-backup  cron  true     unknown  /home/you/.kairos/flows/greet-flow.yaml
+```
+
+The web UI has a matching form at **Sources → New cron source**; the TUI has it at `:source new`.
+For any other source kind, `--config '{"...json..."}'` remains the escape hatch it always was.

@@ -33,6 +33,12 @@ const (
 	ScreenProjects
 	ScreenSessions
 	ScreenSessionChat
+	// ScreenFlowCreate/ScreenSourceCreate close two more real, named gaps
+	// found via live testing: there was no way to author a workflow or a
+	// trigger source through any surface — see
+	// L29-flow-and-source-authoring.md.
+	ScreenFlowCreate
+	ScreenSourceCreate
 )
 
 // Mode is the two-mode keyboard model 09-cli-and-tui.md requires: in NAV,
@@ -81,6 +87,8 @@ type Model struct {
 	projects     projectsState
 	sessions     sessionsState
 	sessionChat  sessionChatState
+	flows        flowsState
+	cronSource   cronSourceState
 
 	quitting bool
 }
@@ -225,6 +233,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusLine = "started session " + msg.session.ID
 		return m, m.fetchSessions()
 
+	case flowCreatedMsg:
+		if msg.err != nil {
+			m.flows.saveErr = msg.err
+			return m, nil
+		}
+		m.flows.creating = false
+		m.flows.saved = msg.flow.Path
+		m.statusLine = "saved flow " + msg.flow.Name
+		return m, nil
+
+	case cronSourceCreatedMsg:
+		if msg.err != nil {
+			m.cronSource.saveErr = msg.err
+			return m, nil
+		}
+		m.cronSource.creating = false
+		m.cronSource.saved = msg.source.ID
+		m.statusLine = "created source " + msg.source.ID
+		return m, nil
+
 	case sessionChatFetchedMsg:
 		m.sessionChat.session = msg.session
 		m.sessionChat.messages = msg.messages
@@ -284,6 +312,10 @@ func (m Model) View() string {
 		return m.viewSessions()
 	case ScreenSessionChat:
 		return m.viewSessionChat()
+	case ScreenFlowCreate:
+		return m.viewFlowCreate()
+	case ScreenSourceCreate:
+		return m.viewSourceCreate()
 	}
 	return ""
 }

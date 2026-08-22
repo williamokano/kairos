@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"fmt"
+	"os"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/williamokano/kairos/internal/cli"
@@ -298,4 +301,45 @@ func isTerminalStatus(s string) bool {
 		return true
 	}
 	return false
+}
+
+type flowCreatedMsg struct {
+	flow cli.FlowDefinition
+	err  error
+}
+
+// createFlow reads path itself (the TUI runs on the same machine a user
+// would otherwise hand-author the workflow on) and posts its bytes as
+// yaml text — the SAME real registry.Load-validated save path `kairos
+// flow create --file` and the web editor both already use, so a bad
+// workflow is rejected here with the identical real error text.
+func (m Model) createFlow(name, path string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return flowCreatedMsg{err: fmt.Errorf("reading %s: %w", path, err)}
+		}
+		ctx, cancel := withTimeout(m.ctx)
+		defer cancel()
+		flow, err := m.client.CreateFlowDefinition(ctx, name, string(data))
+		return flowCreatedMsg{flow: flow, err: err}
+	}
+}
+
+type cronSourceCreatedMsg struct {
+	source cli.Source
+	err    error
+}
+
+// createCronSource posts discrete fields — the daemon builds the real
+// config string server-side (internal/tasksource.BuildCronConfig), so
+// this call never needs that package itself (ADR 0008: the TUI never
+// imports execution machinery, even transitively).
+func (m Model) createCronSource(id, schedule string, weekday, hour, minute int, flow string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := withTimeout(m.ctx)
+		defer cancel()
+		src, err := m.client.AddCronSource(ctx, id, schedule, weekday, hour, minute, flow)
+		return cronSourceCreatedMsg{source: src, err: err}
+	}
 }

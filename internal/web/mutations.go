@@ -38,6 +38,8 @@ func registerMutations(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("POST /projects", handleCreateProject(deps))
 	mux.HandleFunc("POST /sessions", handleCreateSession(deps))
 	mux.HandleFunc("DELETE /sessions/{id}", handleEndSession(deps))
+	mux.HandleFunc("POST /flows/new", handleCreateFlowDefinition(deps))
+	mux.HandleFunc("POST /sources/new-cron", handleCreateCronSource(deps))
 }
 
 // handleEndSession is the web dialog for `kairos session end` — real,

@@ -134,6 +134,42 @@ type sessionsState struct {
 	startErr     error
 }
 
+// flowsState backs ScreenFlowCreate — the TUI's real answer to "there is
+// no way to create a workflow definition anywhere in this system": a
+// name, then a local file path this process reads itself and POSTs as
+// yaml text to cli.Client.CreateFlowDefinition, the SAME real
+// registry.Load-validated save path `kairos flow create --file` and the
+// web editor both already use.
+type flowsState struct {
+	creating bool
+	field    int // 0 = name, 1 = file path
+	name     string
+	path     string
+	saveErr  error
+	saved    string // the saved path, on success — shown once, then cleared on next 'n'
+}
+
+// cronSourceState backs ScreenSourceCreate — 08-triggers.md's own named
+// Future work ("--config takes raw JSON... a friendlier per-kind flag
+// surface is cosmetic, deferred"), closed here for "cron", the one
+// source kind that's a real, constructible Source today. Fields are
+// posted via cli.Client.AddCronSource, which lets the DAEMON build the
+// real config string server-side — this state never needs
+// internal/tasksource itself (ADR 0008: the TUI never imports execution
+// machinery, even transitively).
+type cronSourceState struct {
+	creating bool
+	field    int // 0=id 1=flow 2=schedule 3=weekday 4=hour 5=minute
+	id       string
+	flow     string
+	schedule string // "daily" | "weekly"
+	weekday  string
+	hour     string
+	minute   string
+	saveErr  error
+	saved    string
+}
+
 // sessionChatState is the TUI's real answer to the web UI's
 // /sessions/{id} page: the session id lives here, in the screen's own
 // state, for the screen's entire lifetime — it is set once on entry

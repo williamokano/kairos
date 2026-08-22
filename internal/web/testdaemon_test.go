@@ -49,6 +49,17 @@ type fakeDaemon struct {
 	projects        []cli.Project
 	endSessionCalls []endSessionCall
 	endSessionErr   error
+	flows           []cli.FlowDefinition
+	createFlowErr   error
+	createFlowCalls []createFlowCall
+	addSourceCalls  []addSourceCall
+	addSourceErr    error
+}
+
+type createFlowCall struct{ Name, YAML string }
+type addSourceCall struct {
+	ID, Kind, Config, Flow, Project string
+	IntervalSeconds                 int
 }
 
 type doCall struct{ Text, ContinueRunID, SessionID string }
@@ -185,6 +196,36 @@ func newFakeDaemon(t *testing.T) (*fakeDaemon, string) {
 	})
 	mux.HandleFunc("GET /sources", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"sources": fd.sources})
+	})
+	mux.HandleFunc("POST /sources", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID, Kind, Config, Flow, Project string
+			IntervalSeconds                 int
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		fd.addSourceCalls = append(fd.addSourceCalls, addSourceCall{req.ID, req.Kind, req.Config, req.Flow, req.Project, req.IntervalSeconds})
+		if fd.addSourceErr != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "invariant_violation", "message": fd.addSourceErr.Error()}})
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(cli.Source{ID: req.ID, Kind: req.Kind})
+	})
+	mux.HandleFunc("GET /flow-definitions", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"flows": fd.flows})
+	})
+	mux.HandleFunc("POST /flow-definitions", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Name, YAML string }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		fd.createFlowCalls = append(fd.createFlowCalls, createFlowCall{req.Name, req.YAML})
+		if fd.createFlowErr != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "validation_failed", "message": fd.createFlowErr.Error()}})
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(cli.FlowDefinition{Name: req.Name, Path: "/fake/flows/" + req.Name + ".yaml"})
 	})
 	mux.HandleFunc("GET /cost", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(fd.costResp)
